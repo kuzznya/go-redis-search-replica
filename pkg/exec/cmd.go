@@ -43,7 +43,7 @@ type HSetCmd struct {
 
 type HSetArg struct {
 	Field string
-	Value string
+	Value []byte
 }
 
 func (c HSetCmd) Name() string {
@@ -66,7 +66,7 @@ func (c HSetCmd) exec(s storage.Storage) error {
 type HsetnxCmd struct {
 	Key   string
 	Field string
-	Value string
+	Value []byte
 }
 
 func (c HsetnxCmd) Name() string {
@@ -105,7 +105,7 @@ func (c HincrbyCmd) exec(s storage.Storage) error {
 
 	val := int64(0)
 	if prev, found := h[c.Field]; found {
-		parsed, err := strconv.ParseInt(prev, 10, 64)
+		parsed, err := strconv.ParseInt(string(prev), 10, 64)
 		if err != nil {
 			return errors.New("hash value is not an integer")
 		}
@@ -113,7 +113,7 @@ func (c HincrbyCmd) exec(s storage.Storage) error {
 	}
 	val += c.Value
 
-	h[c.Field] = strconv.FormatInt(val, 10)
+	h[c.Field] = []byte(strconv.FormatInt(val, 10))
 
 	s.Save(c.Key, h)
 

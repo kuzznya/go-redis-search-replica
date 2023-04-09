@@ -1,0 +1,58 @@
+version: '3.9'
+
+services:
+  redis-1: &first
+    image: redis:7.0
+    container_name: redis-1
+    entrypoint: /usr/bin/entrypoint.sh
+    command: --port $$PORT --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000
+    environment:
+      PORT: 7000
+    restart: unless-stopped
+    healthcheck:
+      test: redis-cli -p $$PORT ping | grep PONG
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    ports: 
+      - 7000:7000
+    volumes:
+      - ./entrypoint.sh:/usr/bin/entrypoint.sh
+      - redis-1:/data
+  redis-2:
+    <<: *first
+    container_name: redis-2
+    environment:
+      PORT: 7001
+    ports: 
+      - 7001:7001
+    volumes:
+      - ./entrypoint.sh:/usr/bin/entrypoint.sh
+      - redis-2:/data
+  redis-3:
+    <<: *first
+    container_name: redis-3
+    environment:
+      PORT: 7002
+    ports: 
+      - 7002:7002
+    volumes:
+      - ./entrypoint.sh:/usr/bin/entrypoint.sh
+      - redis-3:/data
+  redis-cluster-creator:
+    image: redis:7.0
+    container_name: redis-cluster-creator
+    restart: "no"
+    entrypoint: bash -c "
+      sleep 2 && redis-cli --cluster create 
+      $(getent ahosts redis-1 | grep STREAM | head -1 | awk '{print $1}'):7000 
+      $(getent ahosts redis-2 | grep STREAM | head -1 | awk '{print $1}'):7001
+      $(getent ahosts redis-3 | grep STREAM | head -1 | awk '{print $1}'):7002
+      --cluster-replicas 0 --cluster-yes"
+    command: []
+
+volumes:
+  redis-1:
+  redis-2:
+  redis-3:

@@ -109,10 +109,12 @@ func parseHset(args []any) (exec.Command, error) {
 		}
 		hsetArgs[(i-1)/2].Field = field
 
-		hsetArgs[(i-1)/2].Value, ok = args[i+1].(string)
+		strValue, ok := args[i+1].(string)
 		if !ok {
 			return nil, errors.Errorf("Failed to parse HSET: unknown value type %s", reflect.TypeOf(args[i+1]).Name())
 		}
+
+		hsetArgs[(i-1)/2].Value = []byte(strValue)
 	}
 
 	return exec.HSetCmd{Key: key, Args: hsetArgs}, nil
@@ -139,7 +141,7 @@ func parseHsetnx(args []any) (exec.Command, error) {
 		return nil, errors.Errorf("Failed to parse HSETNX: unknown value type %s", reflect.TypeOf(args[2]).Name())
 	}
 
-	return exec.HsetnxCmd{Key: key, Field: field, Value: value}, nil
+	return exec.HsetnxCmd{Key: key, Field: field, Value: []byte(value)}, nil
 }
 
 func parseHincrby(args []any) (exec.Command, error) {

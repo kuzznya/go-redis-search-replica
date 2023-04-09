@@ -3,11 +3,11 @@ package proto_test
 import (
 	"bytes"
 	"encoding"
+	"github.com/kuzznya/go-redis-search-replica/pkg/resp/proto"
 	"testing"
 	"time"
 
-	"github.com/go-redis/redis/v8/internal/proto"
-
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 

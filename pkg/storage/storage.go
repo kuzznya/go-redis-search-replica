@@ -1,53 +1,56 @@
 package storage
 
 type Storage struct {
-	m      map[string]Object
-	gcFunc GCFunc
+	m      map[string]Document
+	onSave DocumentCallback
+	gcFunc DocumentCallback
 }
 
-type Object struct {
+type Document struct {
 	Key     string // TODO check if it should be *string
 	Hash    Hash
 	Deleted bool
 }
 
-type Hash map[string]string
+type Hash map[string][]byte
 
-type GCFunc func(o Object)
+type DocumentCallback func(d *Document)
 
-func New(gcFunc GCFunc) Storage {
-	return Storage{m: map[string]Object{}, gcFunc: gcFunc}
+func New(onSave DocumentCallback, gcFunc DocumentCallback) Storage {
+	return Storage{m: map[string]Document{}, onSave: onSave, gcFunc: gcFunc}
 }
 
 func (s Storage) Save(key string, hash Hash) {
-	o, found := s.m[key]
-	s.m[key] = Object{Key: key, Hash: hash, Deleted: false}
+	doc, found := s.m[key]
+	newDoc := Document{Key: key, Hash: hash, Deleted: false}
+	s.m[key] = newDoc
 	if found {
-		o.Deleted = true
-		s.gcFunc(o)
+		doc.Deleted = true
+		s.gcFunc(&doc)
 	}
+	s.onSave(&newDoc)
 }
 
-func (s Storage) Get(key string) (Object, bool) {
+func (s Storage) Get(key string) (Document, bool) {
 	if val, found := s.m[key]; found {
 		return val, true
 	}
-	return Object{}, false
+	return Document{}, false
 }
 
 func (s Storage) Delete(key string) {
-	o, found := s.m[key]
+	doc, found := s.m[key]
 	delete(s.m, key)
 	if found {
-		o.Deleted = true
-		s.gcFunc(o)
+		doc.Deleted = true
+		s.gcFunc(&doc) // TODO 20.03.2023 check if we get the same reference that is stored in the map
 	}
 }
 
 func (s Storage) Rename(key string, newKey string) {
-	o, found := s.m[key]
+	doc, found := s.m[key]
 	if found {
 		delete(s.m, key)
-		s.m[newKey] = o
+		s.m[newKey] = doc
 	}
 }

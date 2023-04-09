@@ -21,14 +21,16 @@ func Parse(r *bufio.Reader, e exec.Executor) error {
 
 		hash := o.(*model.HashObject)
 
-		// TODO check if running this for each field is efficient
+		args := make([]exec.HSetArg, len(hash.Hash))
+		i := 0
 		for k, v := range hash.Hash {
-			arg := exec.HSetArg{Field: k, Value: string(v)}
-			err := e.Exec(exec.HSetCmd{Key: o.GetKey(), Args: []exec.HSetArg{arg}})
-			if err != nil {
-				procErr = err
-				return false
-			}
+			args[i] = exec.HSetArg{Field: k, Value: v}
+			i++
+		}
+		err := e.Exec(exec.HSetCmd{Key: o.GetKey(), Args: args})
+		if err != nil {
+			procErr = err
+			return false
 		}
 
 		log.Debugf("Hash %s: %s", hash.Key, hash.Hash)

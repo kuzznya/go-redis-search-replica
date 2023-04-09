@@ -1,0 +1,32 @@
+version: '3.9'
+
+services:
+  redis-1: &master
+    image: redis:7.0
+    container_name: redis-1
+    entrypoint: /usr/bin/entrypoint.sh
+    restart: unless-stopped
+    healthcheck:
+      test: redis-cli ping | grep PONG
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    ports: 
+      - 6379:6379
+    volumes:
+      - ./entrypoint.sh:/usr/bin/entrypoint.sh
+      - redis-1:/data
+  redis-2:
+    <<: *master
+    container_name: redis-2
+    command: --replicaof $(getent ahosts redis-1 | grep STREAM | head -1 | awk '{print $1}') 6379
+    ports:
+      - 6380:6379
+    volumes:
+      - ./entrypoint.sh:/usr/bin/entrypoint.sh
+      - redis-2:/data
+
+volumes:
+  redis-1:
+  redis-2:

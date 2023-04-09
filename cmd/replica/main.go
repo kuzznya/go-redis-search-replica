@@ -8,6 +8,7 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/kuzznya/go-redis-search-replica/pkg/exec"
+	"github.com/kuzznya/go-redis-search-replica/pkg/index"
 	"github.com/kuzznya/go-redis-search-replica/pkg/rdb"
 	"github.com/kuzznya/go-redis-search-replica/pkg/resp"
 	"github.com/kuzznya/go-redis-search-replica/pkg/storage"
@@ -21,8 +22,29 @@ import (
 func main() {
 	log.SetLevel(log.DebugLevel)
 
-	noOp := func(_ storage.Object) {} // TODO
-	s := storage.New(noOp)
+	idx := index.NewFTSIndex([]string{"*"}, []string{"title", "content"})
+
+	newDocs := make(chan *storage.Document)
+	deletedDocs := make(chan *storage.Document)
+	go func() {
+		for {
+			select {
+			case doc := <-newDocs:
+				idx.Add(doc)
+			case _ = <-deletedDocs:
+				// TODO 20.03.2023 implement GC
+			}
+		}
+	}()
+
+	indexUpdate := func(d *storage.Document) {
+		newDocs <- d
+	}
+	gcFunc := func(d *storage.Document) {
+		deletedDocs <- d
+	}
+
+	s := storage.New(indexUpdate, gcFunc)
 	e := exec.New(s)
 
 	dialTimeout := 30 * time.Second
@@ -98,10 +120,16 @@ func main() {
 
 	err = rdb.Parse(reader, e)
 	if err != nil {
-		log.WithError(err).Panicln("Failed to parse RDB")
+		log.WithError(err).Panicf("Failed to parse RDB: %+v", err)
 	}
 
 	log.Infof("RDB content received successfully (%d bytes)", rdbLen)
+
+	for len(newDocs) > 0 {
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	idx.PrintIndex()
 
 	go func() {
 		for {
@@ -135,8 +163,6 @@ func main() {
 				log.WithError(err).Panicln("Failed to execute command")
 			}
 		}
-
-		log.Debugf("Storage: %+v", s)
 
 		offset += read
 	}

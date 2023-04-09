@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1,
+    "title": "First article ever",
+    "date": "11.03.2023",
+    "content": "We are happy to welcome you in our new website! Feel free to read anything you find here (you won't find a lot though)"
+  },
+  {
+    "id": 2,
+    "title": "Dog ate my sandwich",
+    "date": "11.03.2023",
+    "content": "My dog, which name is Kora, ate my sandwich without even asking me! It is awful because I had other plans on it"
+  },
+  {
+    "id": 3,
+    "title": "Another useless article",
+    "date": "12.03.2023",
+    "content": "We are happy to announce that we will write more useless things on our website soon, so check our updates. That's totally true, author's wife can prove it:)"
+  }
+]
