@@ -71,7 +71,7 @@ func (p *Parser) ParseCmd() (exec.Command, int, error) {
 		return cmd, offset, err
 	}
 
-	log.Debugf("Skipping cmd %+v", parts)
+	log.Tracef("Skipping cmd %+v", parts)
 
 	return nil, offset, nil
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/emirpasic/gods/sets"
 	"github.com/emirpasic/gods/sets/hashset"
 	log "github.com/sirupsen/logrus"
+	"github.com/willf/bitset"
 	"github.com/kuzznya/go-redis-search-replica/pkg/storage"
 	"math"
 	"sort"
@@ -28,7 +29,7 @@ type FTSIndex struct {
 type DocTermOccurrence struct {
 	Doc         *storage.Document
 	TF          float32
-	Fields      []uint // Fields: array of bit masks of FTSIndex.fields that contain Occurrences, 1st 8 bits represent mask for first 8 FTSIndex.fields, the lowest bit is the 1st field
+	Fields      bitset.BitSet
 	Occurrences []FieldTermOccurrence
 }
 
@@ -84,7 +85,7 @@ func (i *FTSIndex) Add(doc *storage.Document) {
 
 	for k, v := range doc.Hash {
 		fieldIdx := sort.SearchStrings(i.fields, k)
-		if fieldIdx > len(i.fields) || k != i.fields[fieldIdx] {
+		if fieldIdx >= len(i.fields) || k != i.fields[fieldIdx] {
 			continue
 		}
 
@@ -95,7 +96,6 @@ func (i *FTSIndex) Add(doc *storage.Document) {
 			token := seg.Text()
 			end := start + len(token)
 
-			// TODO 13.03.2023 remove this, needed only to detect unusual types
 			i.logUnusualTokenType(token, seg.Type())
 
 			if seg.Type() == segment.None {
@@ -131,16 +131,11 @@ func (i *FTSIndex) processToken(doc *storage.Document, occurrences map[string]*D
 
 	occurrence, found := occurrences[term]
 	if !found {
-		occurrence = &DocTermOccurrence{Doc: doc, Fields: []uint{0}, Occurrences: []FieldTermOccurrence{}}
+		occurrence = &DocTermOccurrence{Doc: doc, Fields: *bitset.New(uint(fieldIdx)), Occurrences: []FieldTermOccurrence{}}
 		occurrences[term] = occurrence
 	}
 
-	requiredMaskLen := fieldIdx/8 + 1
-	for i := len(occurrence.Fields); i < requiredMaskLen; i++ {
-		occurrence.Fields = append(occurrence.Fields, 0)
-	}
-
-	occurrence.Fields[fieldIdx/8] &= 1 << (fieldIdx % 8)
+	occurrence.Fields.Set(uint(fieldIdx))
 
 	fieldOccurrence := FieldTermOccurrence{FieldIdx: fieldIdx, Offset: start, Len: len(token), Pos: pos}
 	occurrence.Occurrences = append(occurrence.Occurrences, fieldOccurrence)
@@ -152,8 +147,6 @@ func (i *FTSIndex) logUnusualTokenType(token string, tokenType int) {
 		log.Warnf("%s type: Ideo\n", token)
 	case segment.Kana:
 		log.Warnf("%s type: Kana\n", token)
-	case segment.Number:
-		log.Warnf("%s type: Number\n", token)
 	}
 }
 
@@ -217,7 +210,6 @@ func (i *FTSIndex) PrintIndex() {
 func (i *FTSIndex) idf(term string) float32 {
 	df := i.df[term]
 	idf := math.Log2(1 + float64(i.docsCount)/float64(df))
-	fmt.Printf("DF = %d, total docs = %d\n", df, i.docsCount)
 	return float32(idf)
 }
 

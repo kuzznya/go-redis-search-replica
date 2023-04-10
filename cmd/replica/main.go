@@ -20,26 +20,35 @@ import (
 	"time"
 )
 
-func main() {
-	log.SetLevel(log.DebugLevel)
+const indexAsync = false
 
-	idx := index.NewFTSIndex([]string{"*"}, []string{"title", "content"})
+func main() {
+	log.SetLevel(log.InfoLevel)
+
+	idx := index.NewFTSIndex([]string{"*"}, []string{"headline", "short_description"})
 
 	newDocs := make(chan *storage.Document)
 	deletedDocs := make(chan *storage.Document)
 	go func() {
 		for {
-			select {
-			case doc := <-newDocs:
-				idx.Add(doc)
-			case _ = <-deletedDocs:
-				// TODO 20.03.2023 implement GC
-			}
+			doc := <-newDocs
+			idx.Add(doc)
+		}
+	}()
+
+	go func() {
+		for {
+			_ = <-deletedDocs
+			// TODO 20.03.2023 implement GC
 		}
 	}()
 
 	indexUpdate := func(d *storage.Document) {
-		newDocs <- d
+		if indexAsync {
+			newDocs <- d
+		} else {
+			idx.Add(d)
+		}
 	}
 	gcFunc := func(d *storage.Document) {
 		deletedDocs <- d
@@ -99,7 +108,7 @@ func main() {
 
 	log.Infof("Redis PSYNC response received - masterId: %s, offset: %d", masterId, offset)
 
-	err = conn.SetReadDeadline(time.Now().Add(1 * time.Minute))
+	err = conn.SetReadDeadline(time.Now().Add(1 * time.Hour))
 	if err != nil {
 		log.WithError(err).Panicln("Failed to set read deadline for connection")
 	}
@@ -107,9 +116,28 @@ func main() {
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
 
-	line, _, err := reader.ReadLine()
-	if err != nil {
-		log.WithError(err).Panicln("Failed to read RDB")
+	go func() {
+		for {
+			// NB: We report offset - 1 so that replica is never in full sync from the master POV,
+			// so master never tries to failover to this node
+			ackOffset := offset - 1
+			if ackOffset < 0 {
+				ackOffset = 0
+			}
+			replconfAck(writer, conn, ackOffset)
+			time.Sleep(1 * time.Second)
+		}
+	}()
+
+	var line []byte
+	for {
+		line, _, err = reader.ReadLine()
+		if err != nil {
+			log.WithError(err).Panicln("Failed to read RDB")
+		}
+		if len(line) > 0 {
+			break
+		}
 	}
 	if line[0] != '$' {
 		log.Panicf("RDB content should start with $<len>, but received '%s'", line)
@@ -127,28 +155,27 @@ func main() {
 	log.Infof("RDB content received successfully (%d bytes)", rdbLen)
 
 	for len(newDocs) > 0 {
-		time.Sleep(1 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
 	}
+	time.Sleep(5 * time.Millisecond)
 
-	idx.PrintIndex()
+	//idx.PrintIndex()
 
-	result := search.Union(idx.Read("awful"), search.Intersect(idx.Read("on"), idx.Read("our")))
+	start := time.Now().UnixMicro()
+	result := search.Intersect(idx.Read("spider"), idx.Read("man"))
+	result = search.TopN(5, result)
 	for {
 		occ, score, ok := result.Next()
+		//_, _, ok := result.Next()
 		if !ok {
 			break
 		}
+		if occ.Doc == nil {
+			continue
+		}
 		log.Infof("Document %s, score %.6f", occ.Doc.Key, score)
 	}
-
-	go func() {
-		for {
-			// NB: We report offset - 1 so that replica is never in full sync from the master POV,
-			// so master never tries to failover to this node
-			replconfAck(writer, conn, offset-1)
-			time.Sleep(1 * time.Second)
-		}
-	}()
+	log.Infof("Execution time: %d", time.Now().UnixMicro()-start)
 
 	parser := resp.NewParser(reader)
 	for {
@@ -203,7 +230,7 @@ func execReplconf(c *redis.Client) {
 
 func replconfAck(writer *bufio.Writer, conn *net.TCPConn, offset int) {
 	ack := fmt.Sprintf("REPLCONF ACK %d\n", offset)
-	log.Tracef("Ack: %s", ack) // TODO check is Debug or Trace better
+	log.Tracef("Ack: %s", ack)
 
 	_, err := writer.Write([]byte(ack))
 	if err != nil {
