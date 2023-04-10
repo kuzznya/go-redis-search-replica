@@ -1,14 +1,16 @@
 package index
 
+import "sort"
+
 // WalkFunc defines some action to take on the given key and value during
 // a Trie Walk. Returning a non-nil error will terminate the Walk.
-type WalkFunc func(key string, value []docTermOccurrence) error
+type WalkFunc func(key string, value []DocTermOccurrence) error
 
 // Trier exposes the Trie structure capabilities.
 type Trier interface {
-	Get(key string) []docTermOccurrence
-	Put(key string, value []docTermOccurrence) bool
-	Add(key string, value docTermOccurrence)
+	Get(key string) []DocTermOccurrence
+	Put(key string, value []DocTermOccurrence) bool
+	Add(key string, value DocTermOccurrence)
 	Delete(key string) bool
 	Walk(walker WalkFunc) error
 	WalkPath(key string, walker WalkFunc) error
@@ -18,7 +20,7 @@ type Trier interface {
 // Note that internal nodes have nil values so a stored nil value will not
 // be distinguishable and will not be included in Walks.
 type RuneTrie struct {
-	value    []docTermOccurrence
+	value    []DocTermOccurrence
 	children map[rune]*RuneTrie
 }
 
@@ -29,7 +31,7 @@ func NewRuneTrie() *RuneTrie {
 
 // Get returns the value stored at the given key. Returns nil for internal
 // nodes or for nodes with a value of nil.
-func (trie *RuneTrie) Get(key string) []docTermOccurrence {
+func (trie *RuneTrie) Get(key string) []DocTermOccurrence {
 	node := trie
 	for _, r := range key {
 		node = node.children[r]
@@ -45,7 +47,7 @@ func (trie *RuneTrie) Get(key string) []docTermOccurrence {
 // if it replaces an existing value.
 // Note that internal nodes have nil values so a stored nil value will not
 // be distinguishable and will not be included in Walks.
-func (trie *RuneTrie) Put(key string, value []docTermOccurrence) bool {
+func (trie *RuneTrie) Put(key string, value []DocTermOccurrence) bool {
 	node := trie
 	for _, r := range key {
 		child, _ := node.children[r]
@@ -64,7 +66,7 @@ func (trie *RuneTrie) Put(key string, value []docTermOccurrence) bool {
 	return isNewVal
 }
 
-func (trie *RuneTrie) Add(key string, value docTermOccurrence) {
+func (trie *RuneTrie) Add(key string, value DocTermOccurrence) {
 	node := trie
 	for _, r := range key {
 		child, _ := node.children[r]
@@ -78,9 +80,18 @@ func (trie *RuneTrie) Add(key string, value docTermOccurrence) {
 		node = child
 	}
 	if node.value == nil {
-		node.value = []docTermOccurrence{value}
+		node.value = []DocTermOccurrence{value}
 	} else {
-		node.value = append(node.value, value)
+		idx := sort.Search(len(node.value), func(i int) bool {
+			return node.value[i].Doc.Key >= value.Doc.Key
+		})
+		node.value = append(node.value, DocTermOccurrence{})
+		if idx < len(node.value)-1 {
+			copy(node.value[idx+1:], node.value[idx:])
+		}
+		node.value[idx] = value
+
+		//node.value = append(node.value, value)
 	}
 }
 

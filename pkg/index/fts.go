@@ -16,27 +16,42 @@ import (
 )
 
 type FTSIndex struct {
-	prefixes  []string // TODO 13.03.2023 maybe use Trie here
+	prefixes  []string // TODO: 13.03.2023 maybe use Trie here
 	fields    []string // sorted array
 	fieldSet  sets.Set // fields duplicated to set for O(1) checks
 	trie      Trier
-	df        map[string]uint // TODO 20.03.2023 store this in trie ?
+	df        map[string]uint // TODO: 20.03.2023 store this in trie ?
 	docsCount int32
 	mu        sync.RWMutex
 }
 
-type docTermOccurrence struct {
-	doc         *storage.Document
-	tf          float32
-	fields      []uint // fields: array of bit masks of FTSIndex.fields that contain occurrences, 1st 8 bits represent mask for first 8 FTSIndex.fields, the lowest bit is the 1st field
-	occurrences []fieldTermOccurrence
+type DocTermOccurrence struct {
+	Doc         *storage.Document
+	TF          float32
+	Fields      []uint // Fields: array of bit masks of FTSIndex.fields that contain Occurrences, 1st 8 bits represent mask for first 8 FTSIndex.fields, the lowest bit is the 1st field
+	Occurrences []FieldTermOccurrence
 }
 
-type fieldTermOccurrence struct {
-	fieldIdx int
-	offset   int
-	len      int
-	pos      int
+type FieldTermOccurrence struct {
+	FieldIdx int
+	Offset   int
+	Len      int
+	Pos      int
+}
+
+type TermIterator interface {
+	Next() (occurrence DocTermOccurrence, score float32, ok bool)
+}
+
+type EmptyIterator struct{}
+
+func (e EmptyIterator) Next() (occurrence DocTermOccurrence, score float32, ok bool) {
+	ok = false
+	return
+}
+
+func Empty() TermIterator {
+	return EmptyIterator{}
 }
 
 func NewFTSIndex(prefixes []string, fields []string) *FTSIndex {
@@ -62,8 +77,8 @@ func (i *FTSIndex) Add(doc *storage.Document) {
 
 	log.Debugf("Adding document %s to index", doc.Key)
 
-	// O(1) access to occurrence for current document, using trie here seems inefficient due to O(k) access and result as array of occurrences in all documents
-	occurrences := make(map[string]*docTermOccurrence)
+	// O(1) access to occurrence for current document, using trie here seems inefficient due to O(k) access and result as array of Occurrences in all documents
+	occurrences := make(map[string]*DocTermOccurrence)
 
 	termCount := 0
 
@@ -105,30 +120,30 @@ func (i *FTSIndex) Add(doc *storage.Document) {
 
 	atomic.AddInt32(&i.docsCount, 1)
 	for term, occurrence := range occurrences {
-		occurrence.tf = float32(len(occurrence.occurrences)) / float32(termCount)
+		occurrence.TF = float32(len(occurrence.Occurrences)) / float32(termCount)
 		i.trie.Add(term, *occurrence)
 		i.df[term]++
 	}
 }
 
-func (i *FTSIndex) processToken(doc *storage.Document, occurrences map[string]*docTermOccurrence, fieldIdx int, token string, start int, pos int) {
+func (i *FTSIndex) processToken(doc *storage.Document, occurrences map[string]*DocTermOccurrence, fieldIdx int, token string, start int, pos int) {
 	term := porterstemmer.StemString(token)
 
 	occurrence, found := occurrences[term]
 	if !found {
-		occurrence = &docTermOccurrence{doc: doc, fields: []uint{0}, occurrences: []fieldTermOccurrence{}}
+		occurrence = &DocTermOccurrence{Doc: doc, Fields: []uint{0}, Occurrences: []FieldTermOccurrence{}}
 		occurrences[term] = occurrence
 	}
 
 	requiredMaskLen := fieldIdx/8 + 1
-	for i := len(occurrence.fields); i < requiredMaskLen; i++ {
-		occurrence.fields = append(occurrence.fields, 0)
+	for i := len(occurrence.Fields); i < requiredMaskLen; i++ {
+		occurrence.Fields = append(occurrence.Fields, 0)
 	}
 
-	occurrence.fields[fieldIdx/8] &= 1 << (fieldIdx % 8)
+	occurrence.Fields[fieldIdx/8] &= 1 << (fieldIdx % 8)
 
-	fieldOccurrence := fieldTermOccurrence{fieldIdx: fieldIdx, offset: start, len: len(token), pos: pos}
-	occurrence.occurrences = append(occurrence.occurrences, fieldOccurrence)
+	fieldOccurrence := FieldTermOccurrence{FieldIdx: fieldIdx, Offset: start, Len: len(token), Pos: pos}
+	occurrence.Occurrences = append(occurrence.Occurrences, fieldOccurrence)
 }
 
 func (i *FTSIndex) logUnusualTokenType(token string, tokenType int) {
@@ -142,32 +157,57 @@ func (i *FTSIndex) logUnusualTokenType(token string, tokenType int) {
 	}
 }
 
-//type termIterator interface {
-//	Next() (fieldTermOccurrence, bool)
-//}
-//
-//type termIter struct {
-//}
-//
-//func (i *FTSIndex) termIter(term string) *docTermOccurrence {
-//	idf := i.idf[term]
-//	i.trie.Get(term)
-//}
+type readIterator struct {
+	i           *FTSIndex
+	term        string
+	idf         float32
+	occurrences []DocTermOccurrence
+	pos         int
+}
+
+func (r *readIterator) Next() (occurrence DocTermOccurrence, score float32, ok bool) {
+	for {
+		if r.pos == len(r.occurrences) {
+			ok = false
+			return
+		}
+		occurrence = r.occurrences[r.pos]
+		r.pos++
+		if occurrence.Doc.Deleted {
+			continue
+		}
+		return occurrence, occurrence.TF * r.idf, true
+	}
+
+}
+
+func (i *FTSIndex) Read(term string) TermIterator {
+	term = porterstemmer.StemString(term)
+
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	occurrences := i.trie.Get(term)
+	if occurrences == nil {
+		return Empty()
+	}
+	idf := i.idf(term)
+	return &readIterator{i: i, term: term, idf: idf, occurrences: occurrences, pos: 0}
+}
 
 func (i *FTSIndex) PrintIndex() {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 
-	_ = i.trie.Walk(func(key string, occurrences []docTermOccurrence) error {
+	_ = i.trie.Walk(func(key string, occurrences []DocTermOccurrence) error {
 		fmt.Printf("Term: %s, IDF = %.3f\n", key, i.idf(key))
 		for _, o := range occurrences {
-			fmt.Printf("\tDocument %s occurrences (%d, tf = %.3f):\n", o.doc.Key, len(o.occurrences), o.tf)
-			for _, fo := range o.occurrences {
-				field := i.fields[fo.fieldIdx]
-				value := o.doc.Hash[field]
-				word := string(value[fo.offset : fo.offset+fo.len])
+			fmt.Printf("\tDocument %s Occurrences (%d, TF = %.3f):\n", o.Doc.Key, len(o.Occurrences), o.TF)
+			for _, fo := range o.Occurrences {
+				field := i.fields[fo.FieldIdx]
+				value := o.Doc.Hash[field]
+				word := string(value[fo.Offset : fo.Offset+fo.Len])
 				fmt.Printf("\t\t@%s (offset %d, len %d, pos %d): %s\n",
-					field, fo.offset, fo.len, fo.pos, word)
+					field, fo.Offset, fo.Len, fo.Pos, word)
 			}
 		}
 		return nil

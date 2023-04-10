@@ -11,6 +11,7 @@ import (
 	"github.com/kuzznya/go-redis-search-replica/pkg/index"
 	"github.com/kuzznya/go-redis-search-replica/pkg/rdb"
 	"github.com/kuzznya/go-redis-search-replica/pkg/resp"
+	"github.com/kuzznya/go-redis-search-replica/pkg/search"
 	"github.com/kuzznya/go-redis-search-replica/pkg/storage"
 	"io"
 	"net"
@@ -130,6 +131,15 @@ func main() {
 	}
 
 	idx.PrintIndex()
+
+	result := search.Union(idx.Read("awful"), search.Intersect(idx.Read("on"), idx.Read("our")))
+	for {
+		occ, score, ok := result.Next()
+		if !ok {
+			break
+		}
+		log.Infof("Document %s, score %.6f", occ.Doc.Key, score)
+	}
 
 	go func() {
 		for {
