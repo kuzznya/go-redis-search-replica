@@ -1,7 +1,7 @@
 package search
 
 import (
-	"github.com/willf/bitset"
+	"github.com/bits-and-blooms/bitset"
 	"github.com/kuzznya/go-redis-search-replica/pkg/index"
 	"sync"
 )

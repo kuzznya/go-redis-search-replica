@@ -1,8 +1,8 @@
 package exec
 
 import (
-	"github.com/pkg/errors"
 	"github.com/kuzznya/go-redis-search-replica/pkg/storage"
+	"github.com/pkg/errors"
 	"strconv"
 )
 

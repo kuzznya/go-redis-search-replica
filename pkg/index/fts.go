@@ -2,13 +2,13 @@ package index
 
 import (
 	"fmt"
+	"github.com/bits-and-blooms/bitset"
 	"github.com/blevesearch/go-porterstemmer"
 	"github.com/blevesearch/segment"
 	"github.com/emirpasic/gods/sets"
 	"github.com/emirpasic/gods/sets/hashset"
-	log "github.com/sirupsen/logrus"
-	"github.com/willf/bitset"
 	"github.com/kuzznya/go-redis-search-replica/pkg/storage"
+	log "github.com/sirupsen/logrus"
 	"math"
 	"sort"
 	"strings"
@@ -96,8 +96,6 @@ func (i *FTSIndex) Add(doc *storage.Document) {
 			token := seg.Text()
 			end := start + len(token)
 
-			i.logUnusualTokenType(token, seg.Type())
-
 			if seg.Type() == segment.None {
 				start = end
 				continue
@@ -139,15 +137,6 @@ func (i *FTSIndex) processToken(doc *storage.Document, occurrences map[string]*D
 
 	fieldOccurrence := FieldTermOccurrence{FieldIdx: fieldIdx, Offset: start, Len: len(token), Pos: pos}
 	occurrence.Occurrences = append(occurrence.Occurrences, fieldOccurrence)
-}
-
-func (i *FTSIndex) logUnusualTokenType(token string, tokenType int) {
-	switch tokenType {
-	case segment.Ideo:
-		log.Warnf("%s type: Ideo\n", token)
-	case segment.Kana:
-		log.Warnf("%s type: Kana\n", token)
-	}
 }
 
 type readIterator struct {

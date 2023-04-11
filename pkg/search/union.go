@@ -1,9 +1,9 @@
 package search
 
 import (
-	log "github.com/sirupsen/logrus"
-	"github.com/willf/bitset"
+	"github.com/bits-and-blooms/bitset"
 	"github.com/kuzznya/go-redis-search-replica/pkg/index"
+	log "github.com/sirupsen/logrus"
 )
 
 type UnionIterator struct {

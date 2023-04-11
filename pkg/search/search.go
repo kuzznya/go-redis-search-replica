@@ -3,8 +3,8 @@ package search
 import (
 	"github.com/blevesearch/go-porterstemmer"
 	"github.com/blevesearch/segment"
-	log "github.com/sirupsen/logrus"
 	"github.com/kuzznya/go-redis-search-replica/pkg/index"
+	log "github.com/sirupsen/logrus"
 	"sort"
 )
 
@@ -37,9 +37,7 @@ func TopN(limit int, iter index.TermIterator) index.TermIterator {
 			break
 		}
 		values = append(values, iterBufValue{occ: occ, score: score})
-		log.Infof("Values size: %d", len(values))
 	}
-	log.Infoln("Index read fully")
 	sort.Slice(values, func(i, j int) bool {
 		return values[i].score >= values[j].score
 	})

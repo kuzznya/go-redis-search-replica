@@ -4,15 +4,15 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"github.com/go-redis/redis/v8"
-	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 	"github.com/kuzznya/go-redis-search-replica/pkg/exec"
 	"github.com/kuzznya/go-redis-search-replica/pkg/index"
 	"github.com/kuzznya/go-redis-search-replica/pkg/rdb"
 	"github.com/kuzznya/go-redis-search-replica/pkg/resp"
 	"github.com/kuzznya/go-redis-search-replica/pkg/search"
 	"github.com/kuzznya/go-redis-search-replica/pkg/storage"
+	"github.com/pkg/errors"
+	"github.com/redis/go-redis/v9"
+	log "github.com/sirupsen/logrus"
 	"io"
 	"net"
 	"strconv"
@@ -72,8 +72,8 @@ func main() {
 		Dialer: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			return conn, nil
 		},
-		PoolSize:    1,
-		IdleTimeout: -1, // disable idle timeout check
+		PoolSize:        1,
+		ConnMaxIdleTime: -1, // disable idle timeout check
 	})
 
 	execReplconf(c)

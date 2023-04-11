@@ -1,10 +1,10 @@
 package resp
 
 import (
-	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 	"github.com/kuzznya/go-redis-search-replica/pkg/exec"
 	"github.com/kuzznya/go-redis-search-replica/pkg/resp/proto"
+	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 	"io"
 	"reflect"
 	"strconv"
