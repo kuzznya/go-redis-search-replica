@@ -22,7 +22,7 @@ type Parser struct {
 }
 
 // ParseCmd returns the data, count of bytes read and error (if any)
-func (p *Parser) ParseCmd() (exec.Command, int, error) {
+func (p *Parser) ParseCmd() (exec.Command, uint64, error) {
 	data, err := p.rd.ReadReply(sliceParser)
 	offset := p.c.offset
 	p.c.offset = 0
@@ -258,7 +258,7 @@ func sliceParser(rd *proto.Reader, n int64) (interface{}, error) {
 
 type countingReader struct {
 	r      io.Reader
-	offset int
+	offset uint64
 }
 
 func (c *countingReader) Read(p []byte) (int, error) {
@@ -266,6 +266,6 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	if err != nil {
 		return n, err
 	}
-	c.offset += n
+	c.offset += uint64(n)
 	return n, err
 }

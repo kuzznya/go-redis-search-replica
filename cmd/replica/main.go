@@ -76,36 +76,7 @@ func main() {
 		ConnMaxIdleTime: -1, // disable idle timeout check
 	})
 
-	execReplconf(c)
-
-	psync := redis.NewCmd(context.TODO(), "PSYNC", "0", "0")
-	err = c.Process(context.TODO(), psync)
-	if err != nil {
-		log.WithError(err).Panicln("Failed to run PSYNC command")
-	}
-	res := psync.Val()
-
-	log.Infof("Redis response: %s", res)
-
-	var masterId string
-	var offset int
-	if strResp, ok := res.(string); ok {
-		parts := strings.Split(strResp, " ")
-		if len(parts) != 3 {
-			log.Panicf("Redis PSYNC response '%s' cannot be splitted in 3 parts", strResp)
-		}
-		if strings.ToUpper(parts[0]) != "FULLRESYNC" {
-			log.Panicf("Redis PSYNC response '%s' is not FULLRESYNC", strResp)
-		}
-		masterId = parts[1]
-		offset, err = strconv.Atoi(parts[2])
-		if err != nil {
-			log.Panicf("Redis PSYNC response '%s' invalid: failed to parse offset", strResp)
-		}
-	} else {
-		log.Panicln("Redis PSYNC response is not string")
-	}
-
+	masterId, offset := initSync(c)
 	log.Infof("Redis PSYNC response received - masterId: %s, offset: %d", masterId, offset)
 
 	err = conn.SetReadDeadline(time.Now().Add(1 * time.Hour))
@@ -217,6 +188,37 @@ func createConn(dialTimeout time.Duration) (*net.TCPConn, error) {
 	}
 }
 
+func initSync(c *redis.Client) (masterId string, offset uint64) {
+	execReplconf(c)
+
+	psync := redis.NewCmd(context.TODO(), "PSYNC", "0", "0")
+	err := c.Process(context.TODO(), psync)
+	if err != nil {
+		log.WithError(err).Panicln("Failed to run PSYNC command")
+	}
+	res := psync.Val()
+
+	log.Infof("Redis response: %s", res)
+
+	if strResp, ok := res.(string); ok {
+		parts := strings.Split(strResp, " ")
+		if len(parts) != 3 {
+			log.Panicf("Redis PSYNC response '%s' cannot be splitted in 3 parts", strResp)
+		}
+		if strings.ToUpper(parts[0]) != "FULLRESYNC" {
+			log.Panicf("Redis PSYNC response '%s' is not FULLRESYNC", strResp)
+		}
+		masterId = parts[1]
+		offset, err = strconv.ParseUint(parts[2], 10, 64)
+		if err != nil {
+			log.Panicf("Redis PSYNC response '%s' invalid: failed to parse offset", strResp)
+		}
+	} else {
+		log.Panicln("Redis PSYNC response is not string")
+	}
+	return
+}
+
 func execReplconf(c *redis.Client) {
 	replconf := redis.NewCmd(context.TODO(), "REPLCONF", "ip-address", "127.0.0.2", "listening-port", "6379")
 	err := c.Process(context.TODO(), replconf)
@@ -228,7 +230,7 @@ func execReplconf(c *redis.Client) {
 	}
 }
 
-func replconfAck(writer *bufio.Writer, conn *net.TCPConn, offset int) {
+func replconfAck(writer *bufio.Writer, conn *net.TCPConn, offset uint64) {
 	ack := fmt.Sprintf("REPLCONF ACK %d\n", offset)
 	log.Tracef("Ack: %s", ack)
 
