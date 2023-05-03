@@ -1,10 +1,7 @@
 package search
 
 import (
-	"github.com/blevesearch/go-porterstemmer"
-	"github.com/blevesearch/segment"
 	"github.com/kuzznya/go-redis-search-replica/pkg/index"
-	log "github.com/sirupsen/logrus"
 	"sort"
 )
 
@@ -29,7 +26,14 @@ func (t *TopNIterator) Next() (occurrence index.DocTermOccurrence, score float32
 	return
 }
 
-func TopN(limit int, iter index.TermIterator) index.TermIterator {
+func TopN(offset int, limit int, iter index.TermIterator) index.TermIterator {
+	for i := offset; i > 0; i-- {
+		_, _, ok := iter.Next()
+		if !ok {
+			return index.Empty()
+		}
+	}
+
 	values := make([]iterBufValue, 0)
 	for {
 		occ, score, ok := iter.Next()
@@ -48,26 +52,4 @@ func TopN(limit int, iter index.TermIterator) index.TermIterator {
 	values = values[:limit]
 
 	return &TopNIterator{values: values}
-}
-
-func Search(query string) {
-	terms := make([]string, 0)
-	seg := segment.NewSegmenterDirect([]byte(query))
-	pos := 0
-	for seg.Segment() {
-		token := seg.Text()
-
-		if seg.Type() == segment.None {
-			continue
-		}
-
-		term := porterstemmer.StemString(token)
-		terms = append(terms, term)
-
-		pos++
-	}
-	if err := seg.Err(); err != nil {
-		log.WithError(err).Panicln("Failed to segment value")
-	}
-
 }

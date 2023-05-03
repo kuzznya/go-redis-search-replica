@@ -1,0 +1,5 @@
+ft_*.go
+ftparser*.go
+*.interp
+*.tokens
+gen/

@@ -5,10 +5,10 @@ import (
 	"context"
 	"fmt"
 	"github.com/kuzznya/go-redis-search-replica/pkg/exec"
-	"github.com/kuzznya/go-redis-search-replica/pkg/index"
 	"github.com/kuzznya/go-redis-search-replica/pkg/rdb"
 	"github.com/kuzznya/go-redis-search-replica/pkg/resp"
 	"github.com/kuzznya/go-redis-search-replica/pkg/search"
+	"github.com/kuzznya/go-redis-search-replica/pkg/server"
 	"github.com/kuzznya/go-redis-search-replica/pkg/storage"
 	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
@@ -20,21 +20,23 @@ import (
 	"time"
 )
 
-const indexAsync = false
+const indexAsync = true
 
 func main() {
 	log.SetLevel(log.InfoLevel)
 
-	idx := index.NewFTSIndex([]string{"*"}, []string{"headline", "short_description"})
+	engine := search.NewEngine()
 
 	newDocs := make(chan *storage.Document)
 	deletedDocs := make(chan *storage.Document)
-	go func() {
-		for {
-			doc := <-newDocs
-			idx.Add(doc)
-		}
-	}()
+	if indexAsync {
+		go func() {
+			for {
+				doc := <-newDocs
+				engine.Add(doc)
+			}
+		}()
+	}
 
 	go func() {
 		for {
@@ -47,7 +49,7 @@ func main() {
 		if indexAsync {
 			newDocs <- d
 		} else {
-			idx.Add(d)
+			engine.Add(d)
 		}
 	}
 	gcFunc := func(d *storage.Document) {
@@ -100,53 +102,12 @@ func main() {
 		}
 	}()
 
-	var line []byte
-	for {
-		line, _, err = reader.ReadLine()
-		if err != nil {
-			log.WithError(err).Panicln("Failed to read RDB")
-		}
-		if len(line) > 0 {
-			break
-		}
-	}
-	if line[0] != '$' {
-		log.Panicf("RDB content should start with $<len>, but received '%s'", line)
-	}
-	rdbLen, err := strconv.ParseInt(string(line[1:]), 10, 64)
-	if err != nil {
-		log.WithError(err).Panicln("Failed to parse RDB size")
-	}
+	rdbReadStart := time.Now()
 
-	err = rdb.Parse(reader, e)
-	if err != nil {
-		log.WithError(err).Panicf("Failed to parse RDB: %+v", err)
-	}
+	rdbLen := readRdb(reader, e)
+	log.Infof("RDB content received successfully (%d bytes) in %s", rdbLen, time.Now().Sub(rdbReadStart).String())
 
-	log.Infof("RDB content received successfully (%d bytes)", rdbLen)
-
-	for len(newDocs) > 0 {
-		time.Sleep(5 * time.Millisecond)
-	}
-	time.Sleep(5 * time.Millisecond)
-
-	//idx.PrintIndex()
-
-	start := time.Now().UnixMicro()
-	result := search.Intersect(idx.Read("spider"), idx.Read("man"))
-	result = search.TopN(5, result)
-	for {
-		occ, score, ok := result.Next()
-		//_, _, ok := result.Next()
-		if !ok {
-			break
-		}
-		if occ.Doc == nil {
-			continue
-		}
-		log.Infof("Document %s, score %.6f", occ.Doc.Key, score)
-	}
-	log.Infof("Execution time: %d", time.Now().UnixMicro()-start)
+	go server.StartServer(engine) // TODO: 03/05/2023 check if it is better to start server in the beginning or here
 
 	parser := resp.NewParser(reader)
 	for {
@@ -249,4 +210,32 @@ func replconfAck(writer *bufio.Writer, conn *net.TCPConn, offset uint64) {
 	if err != nil {
 		log.WithError(err).Panicln("Failed to flush write buffer")
 	}
+}
+
+func readRdb(reader *bufio.Reader, e exec.Executor) uint64 {
+	var line []byte
+	var err error
+	for {
+		line, _, err = reader.ReadLine()
+		if err != nil {
+			log.WithError(err).Panicln("Failed to read RDB")
+		}
+		if len(line) > 0 {
+			break
+		}
+	}
+	if line[0] != '$' {
+		log.Panicf("RDB content should start with $<len>, but received '%s'", line)
+	}
+	rdbLen, err := strconv.ParseUint(string(line[1:]), 10, 64)
+	if err != nil {
+		log.WithError(err).Panicln("Failed to parse RDB size")
+	}
+
+	err = rdb.Parse(reader, e)
+	if err != nil {
+		log.WithError(err).Panicf("Failed to parse RDB: %+v", err)
+	}
+
+	return rdbLen
 }

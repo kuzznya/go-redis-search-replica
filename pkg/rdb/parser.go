@@ -2,9 +2,9 @@ package rdb
 
 import (
 	"bufio"
+	"github.com/hdt3213/rdb/core"
+	"github.com/hdt3213/rdb/model"
 	"github.com/kuzznya/go-redis-search-replica/pkg/exec"
-	"github.com/kuzznya/go-redis-search-replica/pkg/rdb/core"
-	"github.com/kuzznya/go-redis-search-replica/pkg/rdb/model"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )

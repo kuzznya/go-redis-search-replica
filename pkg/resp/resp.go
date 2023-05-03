@@ -23,7 +23,7 @@ type Parser struct {
 
 // ParseCmd returns the data, count of bytes read and error (if any)
 func (p *Parser) ParseCmd() (exec.Command, uint64, error) {
-	data, err := p.rd.ReadReply(sliceParser)
+	data, err := p.rd.ReadReply(SliceParser)
 	offset := p.c.offset
 	p.c.offset = 0
 
@@ -236,10 +236,10 @@ func parseRename(args []any, nx bool) (exec.Command, error) {
 }
 
 // sliceParser implements proto.MultiBulkParse.
-func sliceParser(rd *proto.Reader, n int64) (interface{}, error) {
+func SliceParser(rd *proto.Reader, n int64) (interface{}, error) {
 	vals := make([]interface{}, n)
 	for i := 0; i < len(vals); i++ {
-		v, err := rd.ReadReply(sliceParser)
+		v, err := rd.ReadReply(SliceParser)
 		if err != nil {
 			if err == proto.Nil {
 				vals[i] = nil

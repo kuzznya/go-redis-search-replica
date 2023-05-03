@@ -9,10 +9,24 @@ FT : 'FT';
 CREATE : 'CREATE';
 SEARCH : 'SEARCH';
 
+PREFIX : 'PREFIX';
+SCHEMA : 'SCHEMA';
+
+TEXT : 'TEXT';
+TAG : 'TAG';
+NUMERIC : 'NUMERIC';
+GEO : 'GEO';
+VECTOR : 'VECTOR';
+
+LIMIT : 'LIMIT';
+
 DOT : '.';
+OR : '|';
+QUOTE : '"';
+COLON : ':';
 
-
-Identifier options { caseInsensitive=false; } : [A-Za-z0-9]+ ;
+LBRACE : '(';
+RBRACE : ')';
 
 Integral : Digits;
 
@@ -25,3 +39,6 @@ Numeric
    ;
 
 fragment Digits : [0-9]+;
+
+Identifier options { caseInsensitive=false; } : [A-Za-z0-9]+;
+FieldIdentifier options { caseInsensitive=false; } : '@' Identifier;
