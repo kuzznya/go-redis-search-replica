@@ -96,7 +96,7 @@ func (e Engine) Search(idxName string, ctx parser.IQueryContext, limit parser.IL
 		}
 	}()
 
-	antlr.NewParseTreeWalker().Walk(ftSearch, ctx) // TODO: 05/05/2023 handle panics maybe
+	antlr.NewParseTreeWalker().Walk(ftSearch, ctx)
 
 	iter, ok := ftSearch.pop()
 	if !ok {
@@ -132,10 +132,6 @@ type ftSearchListener struct {
 
 func newFtSearchListener(idx *index.FTSIndex) *ftSearchListener {
 	return &ftSearchListener{idx: idx, stack: arraystack.New()}
-}
-
-func (l *ftSearchListener) ExitQuery(ctx *parser.QueryContext) {
-	// TODO: 03/05/2023 ensure it can be no-op
 }
 
 func (l *ftSearchListener) ExitWord(ctx *parser.WordContext) {

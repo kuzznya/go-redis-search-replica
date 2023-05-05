@@ -14,7 +14,7 @@ type Storage struct {
 }
 
 type Document struct {
-	Key     string // TODO check if it should be *string
+	Key     string
 	Hash    Hash
 	Deleted bool
 }
