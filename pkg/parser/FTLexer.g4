@@ -40,5 +40,5 @@ Numeric
 
 fragment Digits : [0-9]+;
 
-Identifier options { caseInsensitive=false; } : [A-Za-z0-9]+;
+Identifier options { caseInsensitive=false; } : [A-Za-z0-9_]+;
 FieldIdentifier options { caseInsensitive=false; } : '@' Identifier;

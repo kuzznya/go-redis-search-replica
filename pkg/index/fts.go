@@ -5,6 +5,8 @@ import (
 	"github.com/bits-and-blooms/bitset"
 	"github.com/blevesearch/go-porterstemmer"
 	"github.com/blevesearch/segment"
+	"github.com/emirpasic/gods/queues"
+	"github.com/emirpasic/gods/queues/arrayqueue"
 	"github.com/emirpasic/gods/sets"
 	"github.com/emirpasic/gods/sets/hashset"
 	"github.com/kuzznya/go-redis-search-replica/pkg/storage"
@@ -17,13 +19,15 @@ import (
 )
 
 type FTSIndex struct {
-	prefixes  []string // TODO: 13.03.2023 maybe use Trie here
-	fields    []string // sorted array
-	fieldSet  sets.Set // fields duplicated to set for O(1) checks
-	trie      Trier
-	df        map[string]uint // TODO: 20.03.2023 store this in trie ?
-	docsCount int32
-	mu        sync.RWMutex
+	prefixes    []string // TODO: 13.03.2023 maybe use Trie here
+	fields      []string // sorted array
+	fieldSet    sets.Set // fields duplicated to set for O(1) checks
+	trie        Trier
+	df          map[string]uint // TODO: 20.03.2023 store this in trie ?
+	docsCount   int32
+	creating    bool
+	pendingDocs queues.Queue
+	mu          sync.RWMutex
 }
 
 type DocTermOccurrence struct {
@@ -62,13 +66,26 @@ func NewFTSIndex(prefixes []string, fields []string) *FTSIndex {
 		fieldSet.Add(field)
 	}
 	return &FTSIndex{
-		prefixes:  prefixes,
-		fields:    fields,
-		fieldSet:  fieldSet,
-		trie:      NewRuneTrie(),
-		df:        map[string]uint{},
-		docsCount: 0,
+		prefixes:    prefixes,
+		fields:      fields,
+		fieldSet:    fieldSet,
+		trie:        NewRuneTrie(),
+		df:          map[string]uint{},
+		creating:    true,
+		pendingDocs: arrayqueue.New(),
+		docsCount:   0,
 	}
+}
+
+func (i *FTSIndex) Load(docs []*storage.Document) {
+	for _, doc := range docs {
+		if !matchesPrefix(i.prefixes, doc.Key) {
+			continue
+		}
+		i.processDoc(doc)
+	}
+
+	i.creating = false
 }
 
 func (i *FTSIndex) Add(doc *storage.Document) {
@@ -76,6 +93,15 @@ func (i *FTSIndex) Add(doc *storage.Document) {
 		return
 	}
 
+	// defer document indexing if not all existing docs are processed yet
+	if i.creating {
+		log.Debugf("Index is processing existing data, adding document %s to the queue", doc.Key)
+		i.pendingDocs.Enqueue(doc)
+		return
+	}
+}
+
+func (i *FTSIndex) processDoc(doc *storage.Document) {
 	log.Debugf("Adding document %s to index", doc.Key)
 
 	// O(1) access to occurrence for current document, using trie here seems inefficient due to O(k) access and result as array of Occurrences in all documents

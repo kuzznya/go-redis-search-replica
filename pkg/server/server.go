@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"github.com/antlr/antlr4/runtime/Go/antlr/v4"
 	"github.com/kuzznya/go-redis-search-replica/pkg/parser"
 	"github.com/kuzznya/go-redis-search-replica/pkg/search"
@@ -41,42 +42,65 @@ type server struct {
 
 func (s server) handle(conn redcon.Conn, cmd redcon.Command) {
 	defer func() {
-		_ = conn.Close()
+		err := recover()
+		if err != nil {
+			conn.WriteError(fmt.Sprintf("%s", err))
+			if e, ok := err.(error); ok {
+				log.WithError(e).Errorln("Failed to process the command")
+			}
+		}
 	}()
 
+	if len(cmd.Args) == 0 {
+		return
+	}
+
 	data := cmd.Args
+
 	text := make([]string, len(data))
 	for i, arg := range data {
 		text[i] = string(arg)
 	}
+
+	cmdName := strings.ToLower(text[0])
+	switch cmdName {
+	case "quit":
+		conn.WriteString("OK")
+		_ = conn.Close()
+		return
+	case "command":
+		if len(text) > 1 && strings.ToLower(text[1]) == "docs" {
+			if len(text) > 2 {
+				commandDocs(conn, text[2:])
+			} else {
+				commandDocs(conn, nil)
+			}
+		} else {
+			conn.WriteError("Unknown command")
+		}
+		return
+	}
+
 	cmdText := strings.Join(text, " ")
 	log.Infof("Received cmd: %s", cmdText)
+
 	lexer := parser.NewFTLexer(antlr.NewInputStream(cmdText))
 	stream := antlr.NewCommonTokenStream(lexer, 0)
 	p := parser.NewFTParser(stream)
-	p.AddErrorListener(antlr.NewDiagnosticErrorListener(true))
+	p.AddErrorListener(antlr.NewDiagnosticErrorListener(true)) // TODO: 05/05/2023 add normal error listener maybe
 	root := p.Root()
 
 	ftCreate := newFtCreateListener(s.engine, conn)
 	antlr.NewParseTreeWalker().Walk(ftCreate, root)
-	if ftCreate.err != nil {
-		conn.WriteError(ftCreate.err.Error())
-		return
-	}
 
 	ftSearch := newFtSearchListener(s.engine, conn)
 	antlr.NewParseTreeWalker().Walk(ftSearch, root)
-	if ftSearch.err != nil {
-		conn.WriteError(ftSearch.err.Error())
-		return
-	}
 }
 
 type ftCreateListener struct {
 	*parser.BaseFTParserListener
 	engine search.Engine
 	conn   redcon.Conn
-	err    error
 }
 
 func newFtCreateListener(engine search.Engine, conn redcon.Conn) *ftCreateListener {
@@ -90,12 +114,10 @@ func (l *ftCreateListener) ExitFt_create(ctx *parser.Ft_createContext) {
 	if ctx.Prefix_part() != nil {
 		prefixCount, err := strconv.Atoi(ctx.Prefix_part().Integral().GetText())
 		if err != nil {
-			l.err = errors.Wrap(err, "failed to parse prefix count")
-			return
+			panic(errors.Wrap(err, "failed to parse prefix count"))
 		}
 		if len(ctx.Prefix_part().AllPrefix()) != prefixCount {
-			l.err = errors.Errorf("invalid prefix count (expected %d, actual %d)", prefixCount, len(ctx.Prefix_part().AllPrefix()))
-			return
+			panic(errors.Errorf("invalid prefix count (expected %d, actual %d)", prefixCount, len(ctx.Prefix_part().AllPrefix())))
 		}
 
 		prefixes = make([]string, prefixCount)
@@ -127,7 +149,6 @@ type ftSearchListener struct {
 	*parser.BaseFTParserListener
 	engine search.Engine
 	conn   redcon.Conn
-	err    error
 }
 
 func newFtSearchListener(engine search.Engine, conn redcon.Conn) *ftSearchListener {
@@ -136,10 +157,12 @@ func newFtSearchListener(engine search.Engine, conn redcon.Conn) *ftSearchListen
 
 func (l *ftSearchListener) ExitFt_search(ctx *parser.Ft_searchContext) {
 	index := ctx.Index().GetText()
-	iter, err := l.engine.Search(index, ctx.Query())
+
+	limitPart := ctx.Limit_part()
+
+	iter, err := l.engine.Search(index, ctx.Query(), limitPart)
 	if err != nil {
-		l.err = err
-		return
+		panic(err)
 	}
 
 	docs := make([]*storage.Document, 0)
@@ -154,11 +177,39 @@ func (l *ftSearchListener) ExitFt_search(ctx *parser.Ft_searchContext) {
 	l.conn.WriteArray(len(docs)*2 + 1)
 	l.conn.WriteInt(len(docs))
 	for _, doc := range docs {
-		l.conn.WriteString(doc.Key)
-		l.conn.WriteArray(len(doc.Hash) * 2)
-		for k, v := range doc.Hash {
-			l.conn.WriteString(k)
-			l.conn.WriteString(string(v))
-		}
+		l.conn.WriteAny(doc)
 	}
+}
+
+func commandDocs(conn redcon.Conn, cmds []string) {
+	// TODO: 05/05/2023 filter by cmds
+	ftCreateDocs := map[string]any{
+		"summary": "Create an index with the given specification",
+		"arguments": []any{
+			commandArg("index", "key", nil),
+			commandArg("...options...", "string", nil),
+		},
+	}
+	ftSearchDocs := map[string]any{
+		"summary": "Search the index with a textual query",
+		"arguments": []any{
+			commandArg("index", "key", nil),
+			commandArg("...options...", "string", nil),
+		},
+	}
+	conn.WriteAny([]any{"FT.CREATE", ftCreateDocs, "FT.SEARCH", ftSearchDocs})
+}
+
+func commandArg(name string, argType string, flags []string, args ...map[string]any) map[string]any {
+	a := map[string]any{
+		"name": name,
+		"type": argType,
+	}
+	if flags != nil && len(flags) > 0 {
+		a["flags"] = flags
+	}
+	if len(args) > 0 {
+		a["arguments"] = args
+	}
+	return a
 }

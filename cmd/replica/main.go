@@ -25,39 +25,10 @@ const indexAsync = true
 func main() {
 	log.SetLevel(log.InfoLevel)
 
-	engine := search.NewEngine()
-
-	newDocs := make(chan *storage.Document)
-	deletedDocs := make(chan *storage.Document)
-	if indexAsync {
-		go func() {
-			for {
-				doc := <-newDocs
-				engine.Add(doc)
-			}
-		}()
-	}
-
-	go func() {
-		for {
-			_ = <-deletedDocs
-			// TODO 20.03.2023 implement GC
-		}
-	}()
-
-	indexUpdate := func(d *storage.Document) {
-		if indexAsync {
-			newDocs <- d
-		} else {
-			engine.Add(d)
-		}
-	}
-	gcFunc := func(d *storage.Document) {
-		deletedDocs <- d
-	}
-
-	s := storage.New(indexUpdate, gcFunc)
+	s := storage.New()
 	e := exec.New(s)
+
+	engine := search.NewEngine(s)
 
 	dialTimeout := 30 * time.Second
 	conn, err := createConn(dialTimeout)

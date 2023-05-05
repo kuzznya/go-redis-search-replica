@@ -28,7 +28,8 @@ ft_search : FT DOT SEARCH index query limit_part?;
 query : query_part;
 
 query_part
-  : non_union_query_part+
+  : non_union_query_part
+  | query_part query_part
   | query_part OR query_part;
 
 non_union_query_part
