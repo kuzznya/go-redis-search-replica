@@ -1,13 +1,13 @@
 package search
 
 import (
-	"github.com/bits-and-blooms/bitset"
 	"github.com/kuzznya/go-redis-search-replica/pkg/index"
 	"sync"
 )
 
 type IntersectIterator struct {
-	iters   []index.TermIterator
+	iter1   index.TermIterator
+	iter2   index.TermIterator
 	drained bool
 	async   bool
 }
@@ -22,62 +22,48 @@ func (ii *IntersectIterator) Next() (occurrence index.DocTermOccurrence, score f
 		return
 	}
 
-	results := make([]iterBufValue, len(ii.iters))
-	takeOld := bitset.BitSet{}
-	drained := false
+	var buf1 iterBufValue
+	var buf1HasValue bool
+	var buf2 iterBufValue
+	var buf2HasValue bool
+
 	for {
-		for i, iter := range ii.iters {
-			if takeOld.Test(uint(i)) {
-				continue
+		if !buf1HasValue {
+			occ1, score1, ok1 := ii.iter1.Next()
+			if !ok1 {
+				ii.drained = true
+				ok = false
+				return
 			}
-
-			i := i
-			iter := iter
-
-			occ, score, ok := iter.Next()
-			if !ok {
-				drained = true
-				break
-			}
-			results[i] = iterBufValue{occ: occ, score: score}
+			buf1.occ = occ1
+			buf1.score = score1
+			buf1HasValue = true
 		}
 
-		if drained {
-			ii.drained = true
-			ok = false
-			return
+		if !buf2HasValue {
+			occ2, score2, ok2 := ii.iter2.Next()
+			if !ok2 {
+				ii.drained = true
+				ok = false
+				return
+			}
+			buf2.occ = occ2
+			buf2.score = score2
+			buf2HasValue = true
 		}
 
-		first := results[0]
-		equal := true
-		fields := first.occ.Fields
-		occurrences := first.occ.Occurrences
-		score := first.score
-		maxKey := first.occ.Doc.Key
-		for _, res := range results[1:] {
-			if res.occ.Doc.Key > maxKey {
-				maxKey = res.occ.Doc.Key
-			}
-
-			if equal {
-				fields.InPlaceUnion(&res.occ.Fields)
-				occurrences = append(occurrences, res.occ.Occurrences...)
-				score += res.score
-
-				equal = res.occ.Doc.Key == first.occ.Doc.Key
-			}
+		if buf1.occ.Doc.Key == buf2.occ.Doc.Key {
+			fields := buf1.occ.Fields
+			fields.InPlaceUnion(&buf2.occ.Fields)
+			occurrences := append(buf1.occ.Occurrences, buf2.occ.Occurrences...)
+			result := index.DocTermOccurrence{Doc: buf1.occ.Doc, TF: 0, Fields: fields, Occurrences: occurrences}
+			return result, buf1.score + buf2.score, true // TODO: 06/05/2023 add penalty for distance
 		}
-
-		if equal {
-			result := index.DocTermOccurrence{Doc: first.occ.Doc, TF: 0, Fields: fields, Occurrences: occurrences}
-			return result, score, true
-		}
-
-		takeOld = bitset.BitSet{}
-		for i, res := range results {
-			if res.occ.Doc.Key == maxKey {
-				takeOld.Set(uint(i))
-			}
+		// skip buffer for the iterator with greater key as the other iterator can return the same key later
+		if buf1.occ.Doc.Key > buf2.occ.Doc.Key {
+			buf2HasValue = false
+		} else {
+			buf1HasValue = false
 		}
 	}
 }
@@ -88,74 +74,70 @@ func (ii *IntersectIterator) asyncNext() (occurrence index.DocTermOccurrence, sc
 		return
 	}
 
+	var buf1 iterBufValue
+	var buf1HasValue bool
+	var buf2 iterBufValue
+	var buf2HasValue bool
+
 	wg := sync.WaitGroup{}
-	results := make([]iterBufValue, len(ii.iters))
-	takeOld := bitset.BitSet{}
-	drained := false
+
 	for {
-		for i, iter := range ii.iters {
-			if takeOld.Test(uint(i)) {
-				continue
-			}
-
-			i := i
-			iter := iter
-
+		if !buf1HasValue {
 			wg.Add(1)
+
 			go func() {
 				defer wg.Done()
-				occ, score, ok := iter.Next()
-				if !ok {
-					drained = true
+
+				occ1, score1, ok1 := ii.iter1.Next()
+				if !ok1 {
+					ii.drained = true
 					return
 				}
-				results[i] = iterBufValue{occ: occ, score: score}
+				buf1.occ = occ1
+				buf1.score = score1
+				buf1HasValue = true
 			}()
 		}
-		wg.Wait()
 
-		if drained {
-			ii.drained = true
+		if !buf2HasValue {
+			wg.Add(1)
+
+			go func() {
+				defer wg.Done()
+
+				occ2, score2, ok2 := ii.iter2.Next()
+				if !ok2 {
+					ii.drained = true
+					return
+				}
+				buf2.occ = occ2
+				buf2.score = score2
+				buf2HasValue = true
+			}()
+		}
+
+		wg.Wait()
+		if ii.drained {
 			ok = false
 			return
 		}
 
-		first := results[0]
-		equal := true
-		fields := first.occ.Fields
-		occurrences := first.occ.Occurrences
-		score := first.score
-		maxKey := first.occ.Doc.Key
-		for _, res := range results[1:] {
-			if res.occ.Doc.Key > maxKey {
-				maxKey = res.occ.Doc.Key
-			}
-
-			if equal {
-				fields.InPlaceUnion(&res.occ.Fields)
-				occurrences = append(occurrences, res.occ.Occurrences...)
-				score += res.score
-			}
-
-			if equal && res.occ.Doc.Key != first.occ.Doc.Key {
-				equal = false
-			}
+		if buf1.occ.Doc.Key == buf2.occ.Doc.Key {
+			fields := buf1.occ.Fields
+			fields.InPlaceUnion(&buf2.occ.Fields)
+			occurrences := append(buf1.occ.Occurrences, buf2.occ.Occurrences...)
+			result := index.DocTermOccurrence{Doc: buf1.occ.Doc, TF: 0, Fields: fields, Occurrences: occurrences}
+			return result, buf1.score + buf2.score, true // TODO: 06/05/2023 add penalty for distance
 		}
-
-		if equal {
-			result := index.DocTermOccurrence{Doc: first.occ.Doc, TF: 0, Fields: fields, Occurrences: occurrences}
-			return result, score, true
-		}
-
-		takeOld = bitset.BitSet{}
-		for i, res := range results {
-			if res.occ.Doc.Key == maxKey {
-				takeOld.Set(uint(i))
-			}
+		// skip buffer for the iterator with greater key as the other iterator can return the same key later
+		if buf1.occ.Doc.Key > buf2.occ.Doc.Key {
+			buf2HasValue = false
+		} else {
+			buf1HasValue = false
 		}
 	}
 }
 
-func Intersect(iters ...index.TermIterator) index.TermIterator {
-	return &IntersectIterator{iters: iters}
+func Intersect(iter1 index.TermIterator, iter2 index.TermIterator) index.TermIterator {
+	return &IntersectIterator{iter1: iter1, iter2: iter2}
 }

@@ -13,6 +13,7 @@ import (
 	"math"
 	"strconv"
 	"sync"
+	"time"
 )
 
 const indexAsync = false
@@ -60,11 +61,12 @@ func (e Engine) CreateIndex(name string, prefixes []string, fields []string) {
 	e.mu.Unlock()
 
 	log.Infof("Created index %s", name)
+	start := time.Now()
 
 	go func() {
 		docs := e.s.GetAll(prefixes)
 		idx.Load(docs)
-		log.Infof("Index %s creation finished", name)
+		log.Infof("Index %s creation finished in %s", name, time.Now().Sub(start))
 	}()
 }
 

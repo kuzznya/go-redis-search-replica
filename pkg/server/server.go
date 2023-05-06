@@ -11,6 +11,7 @@ import (
 	"github.com/tidwall/redcon"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const host = "0.0.0.0"
@@ -160,10 +161,13 @@ func (l *ftSearchListener) ExitFt_search(ctx *parser.Ft_searchContext) {
 
 	limitPart := ctx.Limit_part()
 
+	start := time.Now()
 	iter, err := l.engine.Search(index, ctx.Query(), limitPart)
 	if err != nil {
 		panic(err)
 	}
+
+	log.Infof("Query finished in %s", time.Now().Sub(start))
 
 	docs := make([]*storage.Document, 0)
 	for {
