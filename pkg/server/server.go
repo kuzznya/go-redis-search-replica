@@ -9,6 +9,8 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/redcon"
+	"os"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +42,9 @@ func StartServer(engine search.Engine) {
 type server struct {
 	engine search.Engine
 }
+
+var memprof *os.File
+var cpuprof *os.File
 
 func (s server) handle(conn redcon.Conn, cmd redcon.Command) {
 	defer func() {
@@ -78,6 +83,37 @@ func (s server) handle(conn redcon.Conn, cmd redcon.Command) {
 			}
 		} else {
 			conn.WriteError("Unknown command")
+		}
+		return
+
+	case "pprof":
+		if len(text) == 1 {
+			conn.WriteError("Either 'pprof start' or 'pprof end' is supported")
+		}
+		switch strings.ToLower(text[1]) {
+		case "start":
+			if memprof != nil {
+				conn.WriteError("Already in progress")
+				return
+			}
+			memprof, _ = os.Create("mem.pprof")
+			cpuprof, _ = os.Create("cpu.pprof")
+			_ = pprof.StartCPUProfile(cpuprof)
+			conn.WriteString("OK")
+		case "end":
+			if memprof == nil {
+				conn.WriteError("No pprof in progress")
+				return
+			}
+			_ = pprof.WriteHeapProfile(memprof)
+			_ = memprof.Close()
+			memprof = nil
+			pprof.StopCPUProfile()
+			_ = cpuprof.Close()
+			cpuprof = nil
+			conn.WriteString("OK")
+		default:
+			conn.WriteError("Either 'pprof start' or 'pprof end' is supported")
 		}
 		return
 	}

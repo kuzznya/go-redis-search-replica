@@ -44,7 +44,7 @@ func (u *UnionIterator) Next() (occurrence index.DocTermOccurrence, score float3
 		return occ1, score1, true
 	}
 
-	if occ1.Doc.Key == occ2.Doc.Key {
+	if occ1.Doc == occ2.Doc {
 		fields := occ1.Fields
 		fields.InPlaceUnion(&occ2.Fields)
 		occurrences := append(occ1.Occurrences, occ2.Occurrences...)

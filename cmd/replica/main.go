@@ -20,8 +20,6 @@ import (
 	"time"
 )
 
-const indexAsync = true
-
 func main() {
 	log.SetLevel(log.InfoLevel)
 
