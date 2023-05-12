@@ -22,7 +22,12 @@ func Parse(r *bufio.Reader, e exec.Executor) error {
 		if o.GetType() == ftsIndexType {
 			mtObj := o.(*model.ModuleTypeObject)
 			idx := mtObj.Value.(*idxmodel.Index)
-			log.Infof("Index: %+v", idx)
+			ftCreate := exec.FtCreateCmd{Index: *idx}
+			err := e.Exec(ftCreate)
+			if err != nil {
+				procErr = err
+				return false
+			}
 		}
 
 		if o.GetType() != "hash" {
