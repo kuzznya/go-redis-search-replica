@@ -1,0 +1,23 @@
+version: '3.9'
+
+services:
+  redis-1:
+    image: redis-ftsindex
+    build:
+      context: .
+    container_name: redis-1
+    restart: unless-stopped
+    healthcheck:
+      test: redis-cli ping | grep PONG
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    ports:
+      - 6379:6379
+    volumes:
+      - ./entrypoint.sh:/usr/bin/entrypoint.sh
+      - redis:/data
+
+volumes:
+  redis:

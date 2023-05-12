@@ -21,9 +21,9 @@ github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f h1:lO4WD4F/r
 github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f/go.mod h1:cuUVRXasLTGF7a8hSLbxyZXjz+1KgoB3wDUb6vlszIc=
 github.com/emirpasic/gods v1.18.1 h1:FXtiHYKDGKCW2KzwZKx0iC0PQmdlorYgdFG9jPXJ1Bc=
 github.com/emirpasic/gods v1.18.1/go.mod h1:8tpGGwCnJ5H4r6BWwaV6OrWmMoPhUl5jm/FMNAnJvWQ=
-github.com/hdt3213/rdb v1.0.9 h1:x9uiLpgpLSgyKWo8WwYSc5hMg0vglo+u5i5dTnJW33Y=
-github.com/hdt3213/rdb v1.0.9/go.mod h1:A1RWBSb4QGdX8fNs2bSoWxkzcWlWGbCC7OgOTFhPG+k=
 github.com/klauspost/cpuid/v2 v2.0.9/go.mod h1:FInQzS24/EEf25PyTYn52gqo7WaD8xa0213Md/qVLRg=
+github.com/kuzznya/rdb v0.0.0-20230512164724-4f6e2e2d146c h1:XJZseXDINli2yehglxT7JmONsN60YacOQgZJ9lPjZQQ=
+github.com/kuzznya/rdb v0.0.0-20230512164724-4f6e2e2d146c/go.mod h1:urILj0xnp/Qf3Mejd0A2huYzctSTWnCuGXSBZvpuomM=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

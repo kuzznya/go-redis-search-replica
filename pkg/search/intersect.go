@@ -122,7 +122,7 @@ func (ii *IntersectIterator) asyncNext() (occurrence index.DocTermOccurrence, sc
 			return
 		}
 
-		if buf1.occ.Doc.Key == buf2.occ.Doc.Key {
+		if buf1.occ.Doc == buf2.occ.Doc {
 			fields := buf1.occ.Fields
 			fields.InPlaceUnion(&buf2.occ.Fields)
 			occurrences := append(buf1.occ.Occurrences, buf2.occ.Occurrences...)

@@ -24,9 +24,8 @@ func main() {
 	log.SetLevel(log.InfoLevel)
 
 	s := storage.New()
-	e := exec.New(s)
-
 	engine := search.NewEngine(s)
+	e := exec.New(s, engine)
 
 	dialTimeout := 30 * time.Second
 	conn, err := createConn(dialTimeout)

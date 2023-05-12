@@ -1,6 +1,8 @@
 package exec
 
 import (
+	"github.com/kuzznya/go-redis-search-replica/pkg/idxmodel"
+	"github.com/kuzznya/go-redis-search-replica/pkg/search"
 	"github.com/kuzznya/go-redis-search-replica/pkg/storage"
 	"github.com/pkg/errors"
 	"strconv"
@@ -16,11 +18,12 @@ const (
 	Del      = "DEL"
 	Rename   = "RENAME"
 	Renamenx = "RENAMENX"
+	FtCreate = "FT.CREATE"
 )
 
 type Command interface {
 	Name() string
-	exec(s storage.Storage) error
+	exec(s storage.Storage, engine search.Engine) error
 }
 
 type SetCmd struct {
@@ -31,7 +34,7 @@ func (c SetCmd) Name() string {
 	return Set
 }
 
-func (c SetCmd) exec(s storage.Storage) error {
+func (c SetCmd) exec(s storage.Storage, _ search.Engine) error {
 	s.Delete(c.Key)
 	return nil
 }
@@ -50,7 +53,7 @@ func (c HSetCmd) Name() string {
 	return Hset
 }
 
-func (c HSetCmd) exec(s storage.Storage) error {
+func (c HSetCmd) exec(s storage.Storage, _ search.Engine) error {
 	o, found := s.Get(c.Key)
 	h := o.Hash
 	if !found {
@@ -73,7 +76,7 @@ func (c HsetnxCmd) Name() string {
 	return Hsetnx
 }
 
-func (c HsetnxCmd) exec(s storage.Storage) error {
+func (c HsetnxCmd) exec(s storage.Storage, _ search.Engine) error {
 	o, found := s.Get(c.Key)
 	h := o.Hash
 	if !found {
@@ -96,7 +99,7 @@ func (c HincrbyCmd) Name() string {
 	return Hincrby
 }
 
-func (c HincrbyCmd) exec(s storage.Storage) error {
+func (c HincrbyCmd) exec(s storage.Storage, _ search.Engine) error {
 	o, found := s.Get(c.Key)
 	h := o.Hash
 	if !found {
@@ -129,7 +132,7 @@ func (c HDelCmd) Name() string {
 	return Hdel
 }
 
-func (c HDelCmd) exec(s storage.Storage) error {
+func (c HDelCmd) exec(s storage.Storage, _ search.Engine) error {
 	o, found := s.Get(c.Key)
 	h := o.Hash
 	if !found {
@@ -154,7 +157,7 @@ func (c DelCmd) Name() string {
 	return Del
 }
 
-func (c DelCmd) exec(s storage.Storage) error {
+func (c DelCmd) exec(s storage.Storage, _ search.Engine) error {
 	for _, k := range c.Keys {
 		s.Delete(k)
 	}
@@ -170,7 +173,7 @@ func (c RenameCmd) Name() string {
 	return Rename
 }
 
-func (c RenameCmd) exec(s storage.Storage) error {
+func (c RenameCmd) exec(s storage.Storage, _ search.Engine) error {
 	s.Rename(c.Key, c.NewKey)
 	return nil
 }
@@ -184,7 +187,28 @@ func (c RenamenxCmd) Name() string {
 	return Renamenx
 }
 
-func (c RenamenxCmd) exec(s storage.Storage) error {
+func (c RenamenxCmd) exec(s storage.Storage, _ search.Engine) error {
 	s.Rename(c.Key, c.NewKey)
+	return nil
+}
+
+type FtCreateCmd struct {
+	Index idxmodel.Index
+}
+
+func (c FtCreateCmd) Name() string {
+	return FtCreate
+}
+
+func (c FtCreateCmd) exec(_ storage.Storage, engine search.Engine) error {
+	prefixes := c.Index.Prefixes
+	if prefixes == nil || len(prefixes) == 0 {
+		prefixes = []string{"*"}
+	}
+	fields := make([]string, len(c.Index.Schema))
+	for i, f := range c.Index.Schema {
+		fields[i] = f.Name
+	}
+	engine.CreateIndex(c.Index.Name, prefixes, fields)
 	return nil
 }

@@ -7,7 +7,6 @@ import (
 	"github.com/blevesearch/segment"
 	"github.com/emirpasic/gods/queues"
 	"github.com/emirpasic/gods/queues/arrayqueue"
-	"github.com/emirpasic/gods/sets"
 	"github.com/emirpasic/gods/sets/hashset"
 	"github.com/kuzznya/go-redis-search-replica/pkg/storage"
 	log "github.com/sirupsen/logrus"
@@ -19,14 +18,13 @@ import (
 )
 
 type FTSIndex struct {
-	prefixes    []string // TODO: 13.03.2023 maybe use Trie here
+	prefixes    []string
 	fields      []string // sorted array
-	fieldSet    sets.Set // fields duplicated to set for O(1) checks
 	trie        Trier
-	df          map[string]uint // TODO: 20.03.2023 store this in trie ?
+	df          map[string]uint
 	docsCount   int32
 	creating    bool
-	pendingDocs queues.Queue
+	pendingDocs queues.Queue // TODO: 07/05/2023 handle document deletion, probably by marking document in the queue as deleted
 	mu          sync.RWMutex
 }
 
@@ -68,7 +66,6 @@ func NewFTSIndex(prefixes []string, fields []string) *FTSIndex {
 	return &FTSIndex{
 		prefixes:    prefixes,
 		fields:      fields,
-		fieldSet:    fieldSet,
 		trie:        NewRuneTrie(),
 		df:          map[string]uint{},
 		creating:    true,
@@ -84,8 +81,22 @@ func (i *FTSIndex) Load(docs []*storage.Document) {
 		}
 		i.processDoc(doc)
 	}
+	i.drainQueue()
 
 	i.creating = false
+
+	// draining the queue here because new docs could be added before flipping i.creating but after first drain
+	i.drainQueue()
+}
+
+func (i *FTSIndex) drainQueue() {
+	for {
+		doc, ok := i.pendingDocs.Dequeue()
+		if !ok {
+			break
+		}
+		i.processDoc(doc.(*storage.Document))
+	}
 }
 
 func (i *FTSIndex) Add(doc *storage.Document) {
@@ -146,7 +157,12 @@ func (i *FTSIndex) processDoc(doc *storage.Document) {
 	for term, occurrence := range occurrences {
 		occurrence.TF = float32(len(occurrence.Occurrences)) / float32(termCount)
 		i.trie.Add(term, *occurrence)
-		i.df[term]++
+		df, ok := i.df[term]
+		if !ok {
+			i.df[term] = 1
+		} else {
+			i.df[term] = df + 1
+		}
 	}
 }
 

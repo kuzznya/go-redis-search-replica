@@ -2,6 +2,7 @@ package resp
 
 import (
 	"github.com/kuzznya/go-redis-search-replica/pkg/exec"
+	"github.com/kuzznya/go-redis-search-replica/pkg/idxmodel"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/redcon"
@@ -61,6 +62,9 @@ func (p *Parser) ParseCmd() (exec.Command, uint64, error) {
 		return cmd, offset, err
 	case exec.Renamenx:
 		cmd, err := parseRename(parts[1:], true)
+		return cmd, offset, err
+	case exec.FtCreate:
+		cmd, err := parseFtCreate(parts[1:])
 		return cmd, offset, err
 	}
 
@@ -172,6 +176,36 @@ func parseRename(args [][]byte, nx bool) (exec.Command, error) {
 	} else {
 		return exec.RenameCmd{Key: key, NewKey: newKey}, nil
 	}
+}
+
+func parseFtCreate(args [][]byte) (exec.Command, error) {
+	pos := 0
+	next := func() (string, bool) {
+		if len(args) <= pos {
+			return "", false
+		}
+		arg := args[pos]
+		pos++
+		return string(arg), true
+	}
+	checkNext := func(expected string) bool {
+		if len(args) <= pos {
+			return false
+		}
+		arg := string(args[pos])
+		if strings.ToLower(arg) == expected {
+			pos++
+			return true
+		}
+		log.Warnf("Unexpected arg: %s, expected: %s", arg, expected)
+		return false
+	}
+	idx, err := idxmodel.Parse(next, checkNext)
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.FtCreateCmd{Index: *idx}
+	return cmd, nil
 }
 
 type countingReader struct {
