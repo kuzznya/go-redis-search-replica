@@ -18,6 +18,7 @@ import (
 )
 
 type FTSIndex struct {
+	deleted     bool
 	prefixes    []string
 	fields      []string // sorted array
 	trie        Trier
@@ -76,6 +77,9 @@ func NewFTSIndex(prefixes []string, fields []string) *FTSIndex {
 
 func (i *FTSIndex) Load(docs []*storage.Document) {
 	for _, doc := range docs {
+		if i.deleted {
+			return
+		}
 		if !matchesPrefix(i.prefixes, doc.Key) {
 			continue
 		}
@@ -91,12 +95,20 @@ func (i *FTSIndex) Load(docs []*storage.Document) {
 
 func (i *FTSIndex) drainQueue() {
 	for {
+		if i.deleted {
+			return
+		}
+
 		doc, ok := i.pendingDocs.Dequeue()
 		if !ok {
 			break
 		}
 		i.processDoc(doc.(*storage.Document))
 	}
+}
+
+func (i *FTSIndex) MarkDeleted() {
+	i.deleted = true
 }
 
 func (i *FTSIndex) Add(doc *storage.Document) {

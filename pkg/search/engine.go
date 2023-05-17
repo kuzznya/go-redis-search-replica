@@ -70,6 +70,19 @@ func (e Engine) CreateIndex(name string, prefixes []string, fields []string) {
 	}()
 }
 
+func (e Engine) DeleteIndex(name string) {
+	e.mu.RLock()
+	if i, ok := e.indexes[name]; ok {
+		i.MarkDeleted()
+	} else {
+		return
+	}
+	e.mu.RUnlock()
+	e.mu.Lock()
+	delete(e.indexes, name)
+	e.mu.Unlock()
+}
+
 func (e Engine) Add(d *storage.Document) {
 	for _, idx := range e.indexes {
 		idx.Add(d)

@@ -157,9 +157,10 @@ func (c DelCmd) Name() string {
 	return Del
 }
 
-func (c DelCmd) exec(s storage.Storage, _ search.Engine) error {
+func (c DelCmd) exec(s storage.Storage, e search.Engine) error {
 	for _, k := range c.Keys {
 		s.Delete(k)
+		e.DeleteIndex(k)
 	}
 	return nil
 }
