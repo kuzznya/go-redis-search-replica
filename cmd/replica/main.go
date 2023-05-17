@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"flag"
 	"fmt"
 	"github.com/kuzznya/go-redis-search-replica/pkg/exec"
 	"github.com/kuzznya/go-redis-search-replica/pkg/rdb"
@@ -21,7 +22,14 @@ import (
 )
 
 func main() {
-	log.SetLevel(log.InfoLevel)
+	var logLevel string
+	flag.StringVar(&logLevel, "log", "info", "--log warn - set log level to warn")
+	flag.Parse()
+	level, err := log.ParseLevel(logLevel)
+	if err != nil {
+		log.WithError(err).Panicln("Failed to parse log level")
+	}
+	log.SetLevel(level)
 
 	s := storage.New()
 	engine := search.NewEngine(s)
