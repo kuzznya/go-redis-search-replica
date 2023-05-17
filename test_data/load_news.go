@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"flag"
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 	"io"
@@ -11,7 +12,15 @@ import (
 )
 
 func main() {
-	client := redis.NewClient(&redis.Options{})
+	var addr string
+	flag.StringVar(&addr, "url", "", "--url localhost:6379")
+	flag.Parse()
+
+	if addr != "" {
+		log.Infof("Connecting to %s", addr)
+	}
+
+	client := redis.NewClient(&redis.Options{Addr: addr})
 
 	err := client.FlushDB(context.TODO()).Err()
 	if err != nil {
