@@ -121,10 +121,19 @@ func (s server) handle(conn redcon.Conn, cmd redcon.Command) {
 	cmdText := strings.Join(text, " ")
 	log.Infof("Received cmd: %s", cmdText)
 
+	lexerErrors := сustomErrorListener{}
+	parserErrors := сustomErrorListener{}
+
 	lexer := parser.NewFTLexer(antlr.NewInputStream(cmdText))
+	lexer.RemoveErrorListeners()
+	lexer.AddErrorListener(&lexerErrors)
+
 	stream := antlr.NewCommonTokenStream(lexer, 0)
+
 	p := parser.NewFTParser(stream)
-	p.AddErrorListener(antlr.NewDiagnosticErrorListener(true)) // TODO: 05/05/2023 add normal error listener maybe
+	p.RemoveErrorListeners()
+	p.AddErrorListener(&parserErrors)
+
 	root := p.Root()
 
 	ftCreate := newFtCreateListener(s.engine, conn)
@@ -252,4 +261,26 @@ func commandArg(name string, argType string, flags []string, args ...map[string]
 		a["arguments"] = args
 	}
 	return a
+}
+
+type сustomSyntaxError struct {
+	line, column int
+	msg          string
+}
+
+func (c сustomSyntaxError) Error() string {
+	return fmt.Sprintf("Error at position %d: %s", c.column, c.msg)
+}
+
+type сustomErrorListener struct {
+	*antlr.DefaultErrorListener // Embed default which ensures we fit the interface
+}
+
+func (c *сustomErrorListener) SyntaxError(recognizer antlr.Recognizer, offendingSymbol interface{}, line, column int, msg string, e antlr.RecognitionException) {
+	err := сustomSyntaxError{
+		line:   line,
+		column: column,
+		msg:    msg,
+	}
+	panic(err)
 }
