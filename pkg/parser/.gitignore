@@ -1,5 +1,7 @@
-ft_*.go
-ftparser*.go
+query_lexer.go
+query_parser.go
+queryparser_base_listener.go
+queryparser_listener.go
 *.interp
 *.tokens
 gen/

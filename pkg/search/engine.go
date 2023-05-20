@@ -1,6 +1,7 @@
 package search
 
 import (
+	"fmt"
 	"github.com/antlr/antlr4/runtime/Go/antlr/v4"
 	"github.com/blevesearch/go-porterstemmer"
 	"github.com/emirpasic/gods/stacks"
@@ -11,7 +12,6 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"math"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -89,7 +89,12 @@ func (e Engine) Add(d *storage.Document) {
 	}
 }
 
-func (e Engine) Search(idxName string, ctx parser.IQueryContext, limit parser.ILimit_partContext) (iter index.TermIterator, err error) {
+type Limit struct {
+	Offset int
+	Num    int
+}
+
+func (e Engine) Search(idxName string, query string, limit *Limit) (iter index.TermIterator, err error) {
 	e.mu.RLock()
 	idx, found := e.indexes[idxName]
 	e.mu.RUnlock()
@@ -97,7 +102,7 @@ func (e Engine) Search(idxName string, ctx parser.IQueryContext, limit parser.IL
 		return nil, errors.Errorf("Index %s not found", idxName)
 	}
 
-	ftSearch := newFtSearchListener(idx)
+	ftSearch := newQueryListener(idx)
 
 	defer func() {
 		r := recover()
@@ -111,7 +116,22 @@ func (e Engine) Search(idxName string, ctx parser.IQueryContext, limit parser.IL
 		}
 	}()
 
-	antlr.NewParseTreeWalker().Walk(ftSearch, ctx)
+	lexerErrors := сustomErrorListener{}
+	parserErrors := сustomErrorListener{}
+
+	lexer := parser.NewQueryLexer(antlr.NewInputStream(query))
+	lexer.RemoveErrorListeners()
+	lexer.AddErrorListener(&lexerErrors)
+
+	stream := antlr.NewCommonTokenStream(lexer, 0)
+
+	p := parser.NewQueryParser(stream)
+	p.RemoveErrorListeners()
+	p.AddErrorListener(&parserErrors)
+
+	queryCtx := p.Query()
+
+	antlr.NewParseTreeWalker().Walk(ftSearch, queryCtx)
 
 	iter, ok := ftSearch.pop()
 	if !ok {
@@ -119,19 +139,7 @@ func (e Engine) Search(idxName string, ctx parser.IQueryContext, limit parser.IL
 	}
 
 	if limit != nil {
-		offsetStr := limit.Offset().GetText()
-		offset, err := strconv.Atoi(offsetStr)
-		if err != nil {
-			return nil, errors.Wrapf(err, "Failed to parse offset: %s", offsetStr)
-		}
-
-		numStr := limit.Num().GetText()
-		num, err := strconv.Atoi(numStr)
-		if err != nil {
-			return nil, errors.Wrapf(err, "Failed to parse limit: %s", offsetStr)
-		}
-
-		iter = TopN(offset, num, iter)
+		iter = TopN(limit.Offset, limit.Num, iter)
 	} else {
 		iter = TopN(0, math.MaxInt, iter)
 	}
@@ -139,31 +147,31 @@ func (e Engine) Search(idxName string, ctx parser.IQueryContext, limit parser.IL
 	return iter, nil
 }
 
-type ftSearchListener struct {
-	*parser.BaseFTParserListener
+type queryListener struct {
+	*parser.BaseQueryParserListener
 	idx   *index.FTSIndex
 	stack stacks.Stack
 }
 
-func newFtSearchListener(idx *index.FTSIndex) *ftSearchListener {
-	return &ftSearchListener{idx: idx, stack: arraystack.New()}
+func newQueryListener(idx *index.FTSIndex) *queryListener {
+	return &queryListener{idx: idx, stack: arraystack.New()}
 }
 
-func (l *ftSearchListener) ExitWord(ctx *parser.WordContext) {
+func (l *queryListener) ExitWord(ctx *parser.WordContext) {
 	word := ctx.GetText()
 	term := porterstemmer.StemString(word)
 	l.stack.Push(l.idx.Read(term))
 }
 
-func (l *ftSearchListener) ExitExact_match(ctx *parser.Exact_matchContext) {
-	panic("not implemented")
+func (l *queryListener) ExitExact_match(ctx *parser.Exact_matchContext) {
+	panic(errors.New("not implemented"))
 }
 
-func (l *ftSearchListener) ExitField_query_part(ctx *parser.Field_query_partContext) {
-	panic("not implemented")
+func (l *queryListener) ExitField_query_part(ctx *parser.Field_query_partContext) {
+	panic(errors.New("not implemented"))
 }
 
-func (l *ftSearchListener) ExitQuery_part(ctx *parser.Query_partContext) {
+func (l *queryListener) ExitQuery_part(ctx *parser.Query_partContext) {
 	if ctx.Non_union_query_part() != nil {
 		return
 	}
@@ -183,7 +191,7 @@ func (l *ftSearchListener) ExitQuery_part(ctx *parser.Query_partContext) {
 	return
 }
 
-func (l *ftSearchListener) union() bool {
+func (l *queryListener) union() bool {
 	iter2, ok := l.pop()
 	if !ok {
 		return false
@@ -198,7 +206,7 @@ func (l *ftSearchListener) union() bool {
 	return true
 }
 
-func (l *ftSearchListener) intersect() bool {
+func (l *queryListener) intersect() bool {
 	iter2, ok := l.pop()
 	if !ok {
 		return false
@@ -215,7 +223,7 @@ func (l *ftSearchListener) intersect() bool {
 	return true
 }
 
-func (l *ftSearchListener) pop() (index.TermIterator, bool) {
+func (l *queryListener) pop() (index.TermIterator, bool) {
 	v, ok := l.stack.Pop()
 	if !ok {
 		return nil, false
@@ -224,4 +232,26 @@ func (l *ftSearchListener) pop() (index.TermIterator, bool) {
 		return nil, false
 	}
 	return v.(index.TermIterator), true
+}
+
+type сustomSyntaxError struct {
+	line, column int
+	msg          string
+}
+
+func (c сustomSyntaxError) Error() string {
+	return fmt.Sprintf("Error at position %d: %s", c.column, c.msg)
+}
+
+type сustomErrorListener struct {
+	*antlr.DefaultErrorListener // Embed default which ensures we fit the interface
+}
+
+func (c *сustomErrorListener) SyntaxError(recognizer antlr.Recognizer, offendingSymbol interface{}, line, column int, msg string, e antlr.RecognitionException) {
+	err := сustomSyntaxError{
+		line:   line,
+		column: column,
+		msg:    msg,
+	}
+	panic(err)
 }

@@ -72,6 +72,7 @@ func (s Storage) Delete(key string) {
 	s.mu.Unlock()
 	if found {
 		doc.Deleted = true
+		doc.Hash = nil // TODO: 13/05/2023 ensure this is not causing an issue. This should optimize storage
 		s.onDelete(doc)
 	}
 }

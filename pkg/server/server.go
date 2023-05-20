@@ -2,11 +2,8 @@ package server
 
 import (
 	"fmt"
-	"github.com/antlr/antlr4/runtime/Go/antlr/v4"
-	"github.com/kuzznya/go-redis-search-replica/pkg/parser"
 	"github.com/kuzznya/go-redis-search-replica/pkg/search"
 	"github.com/kuzznya/go-redis-search-replica/pkg/storage"
-	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/redcon"
 	"os"
@@ -63,151 +60,86 @@ func (s server) handle(conn redcon.Conn, cmd redcon.Command) {
 
 	data := cmd.Args
 
-	text := make([]string, len(data))
+	args := make([]string, len(data))
 	for i, arg := range data {
-		text[i] = string(arg)
+		args[i] = string(arg)
 	}
 
-	cmdName := strings.ToLower(text[0])
+	cmdName := strings.ToLower(args[0])
 	switch cmdName {
+	case "ft.search":
+		s.handleFtSearch(conn, args[1:])
+		return
 	case "quit":
 		conn.WriteString("OK")
 		_ = conn.Close()
 		return
 	case "command":
-		if len(text) > 1 && strings.ToLower(text[1]) == "docs" {
-			if len(text) > 2 {
-				commandDocs(conn, text[2:])
-			} else {
-				commandDocs(conn, nil)
-			}
-		} else {
-			conn.WriteError("Unknown command")
-		}
+		handleCommandDocs(conn, args[1:])
 		return
-
 	case "pprof":
-		if len(text) == 1 {
-			conn.WriteError("Either 'pprof start' or 'pprof end' is supported")
-		}
-		switch strings.ToLower(text[1]) {
-		case "start":
-			if memprof != nil {
-				conn.WriteError("Already in progress")
-				return
-			}
-			memprof, _ = os.Create("mem.pprof")
-			cpuprof, _ = os.Create("cpu.pprof")
-			_ = pprof.StartCPUProfile(cpuprof)
-			conn.WriteString("OK")
-		case "end":
-			if memprof == nil {
-				conn.WriteError("No pprof in progress")
-				return
-			}
-			_ = pprof.WriteHeapProfile(memprof)
-			_ = memprof.Close()
-			memprof = nil
-			pprof.StopCPUProfile()
-			_ = cpuprof.Close()
-			cpuprof = nil
-			conn.WriteString("OK")
-		default:
-			conn.WriteError("Either 'pprof start' or 'pprof end' is supported")
-		}
+		handlePprof(conn, args[1:])
 		return
 	}
-
-	cmdText := strings.Join(text, " ")
-	log.Infof("Received cmd: %s", cmdText)
-
-	lexerErrors := сustomErrorListener{}
-	parserErrors := сustomErrorListener{}
-
-	lexer := parser.NewFTLexer(antlr.NewInputStream(cmdText))
-	lexer.RemoveErrorListeners()
-	lexer.AddErrorListener(&lexerErrors)
-
-	stream := antlr.NewCommonTokenStream(lexer, 0)
-
-	p := parser.NewFTParser(stream)
-	p.RemoveErrorListeners()
-	p.AddErrorListener(&parserErrors)
-
-	root := p.Root()
-
-	ftCreate := newFtCreateListener(s.engine, conn)
-	antlr.NewParseTreeWalker().Walk(ftCreate, root)
-
-	ftSearch := newFtSearchListener(s.engine, conn)
-	antlr.NewParseTreeWalker().Walk(ftSearch, root)
+	conn.WriteError("Unknown command")
 }
 
-type ftCreateListener struct {
-	*parser.BaseFTParserListener
-	engine search.Engine
-	conn   redcon.Conn
-}
+func (s server) handleFtSearch(conn redcon.Conn, args []string) {
+	if len(args) < 2 {
+		conn.WriteError("Wrong number of arguments provided")
+		return
+	}
+	index := args[0]
+	query := args[1]
 
-func newFtCreateListener(engine search.Engine, conn redcon.Conn) *ftCreateListener {
-	return &ftCreateListener{engine: engine, conn: conn}
-}
-
-func (l *ftCreateListener) ExitFt_create(ctx *parser.Ft_createContext) {
-	name := ctx.Index().GetText()
-
-	var prefixes []string
-	if ctx.Prefix_part() != nil {
-		prefixCount, err := strconv.Atoi(ctx.Prefix_part().Integral().GetText())
-		if err != nil {
-			panic(errors.Wrap(err, "failed to parse prefix count"))
+	pos := 1
+	next := func() (string, bool) {
+		if pos+1 < len(args) {
+			pos++
+			return args[pos], true
 		}
-		if len(ctx.Prefix_part().AllPrefix()) != prefixCount {
-			panic(errors.Errorf("invalid prefix count (expected %d, actual %d)", prefixCount, len(ctx.Prefix_part().AllPrefix())))
-		}
-
-		prefixes = make([]string, prefixCount)
-		for i, prefix := range ctx.Prefix_part().AllPrefix() {
-			prefixes[i] = prefix.GetText()
-		}
-	} else {
-		prefixes = []string{"*"}
+		return "", false
 	}
 
-	fields := make([]string, len(ctx.AllField_spec()))
-	for i, fieldSpec := range ctx.AllField_spec() {
-		fieldName := fieldSpec.Field_name().GetText()
-		fieldType := fieldSpec.Field_type().GetText()
-		if strings.ToLower(fieldType) != "text" {
-			log.Errorf("Unknown field type %s", fieldType)
+	var limit *search.Limit
+
+	for {
+		arg, ok := next()
+		if !ok {
+			break
 		}
-		fields[i] = fieldName
+		arg = strings.ToLower(arg)
+		switch arg {
+		case "limit":
+			offsetStr, ok := next()
+			if !ok {
+				conn.WriteError("LIMIT requires two numeric arguments")
+				return
+			}
+			offset, err := strconv.Atoi(offsetStr)
+			if err != nil {
+				conn.WriteError("LIMIT requires two numeric arguments")
+				return
+			}
+			numStr, ok := next()
+			if !ok {
+				conn.WriteError("LIMIT requires two numeric arguments")
+				return
+			}
+			num, err := strconv.Atoi(numStr)
+			if err != nil {
+				conn.WriteError("LIMIT requires two numeric arguments")
+				return
+			}
+			limit = &search.Limit{Offset: offset, Num: num}
+		default:
+			conn.WriteError(fmt.Sprintf("Unknown argument '%s'", arg))
+			return
+		}
 	}
-
-	l.engine.CreateIndex(name, prefixes, fields)
-
-	log.Infof("Index %s created (prefixes %s, fields %v)", name, prefixes, fields)
-
-	l.conn.WriteString("OK")
-}
-
-type ftSearchListener struct {
-	*parser.BaseFTParserListener
-	engine search.Engine
-	conn   redcon.Conn
-}
-
-func newFtSearchListener(engine search.Engine, conn redcon.Conn) *ftSearchListener {
-	return &ftSearchListener{engine: engine, conn: conn}
-}
-
-func (l *ftSearchListener) ExitFt_search(ctx *parser.Ft_searchContext) {
-	index := ctx.Index().GetText()
-
-	limitPart := ctx.Limit_part()
 
 	start := time.Now()
-	iter, err := l.engine.Search(index, ctx.Query(), limitPart)
+	iter, err := s.engine.Search(index, query, limit)
 	if err != nil {
 		panic(err)
 	}
@@ -223,21 +155,60 @@ func (l *ftSearchListener) ExitFt_search(ctx *parser.Ft_searchContext) {
 		docs = append(docs, occ.Doc)
 	}
 
-	l.conn.WriteArray(len(docs)*2 + 1)
-	l.conn.WriteInt(len(docs))
+	conn.WriteArray(len(docs)*2 + 1)
+	conn.WriteInt(len(docs))
 	for _, doc := range docs {
-		l.conn.WriteAny(doc)
+		conn.WriteAny(doc)
+	}
+}
+
+func handleCommandDocs(conn redcon.Conn, args []string) {
+	if len(args) > 0 && strings.ToLower(args[0]) == "docs" {
+		if len(args) > 1 {
+			commandDocs(conn, args[1:])
+		} else {
+			commandDocs(conn, nil)
+		}
+	} else {
+		conn.WriteError("Unknown command")
+	}
+}
+
+func handlePprof(conn redcon.Conn, args []string) {
+	if len(args) != 1 {
+		conn.WriteError("Either 'pprof start' or 'pprof end' is supported")
+	}
+	switch strings.ToLower(args[1]) {
+	case "start":
+		if memprof != nil {
+			conn.WriteError("Already in progress")
+			return
+		}
+		memprof, _ = os.Create("mem.pprof")
+		cpuprof, _ = os.Create("cpu.pprof")
+		_ = pprof.StartCPUProfile(cpuprof)
+		conn.WriteString("OK")
+	case "end":
+		if memprof == nil {
+			conn.WriteError("No pprof in progress")
+			return
+		}
+		_ = pprof.WriteHeapProfile(memprof)
+		_ = memprof.Close()
+		memprof = nil
+		pprof.StopCPUProfile()
+		_ = cpuprof.Close()
+		cpuprof = nil
+		conn.WriteString("OK")
+	default:
+		conn.WriteError("Either 'pprof start' or 'pprof end' is supported")
 	}
 }
 
 func commandDocs(conn redcon.Conn, cmds []string) {
-	// TODO: 05/05/2023 filter by cmds
-	ftCreateDocs := map[string]any{
-		"summary": "Create an index with the given specification",
-		"arguments": []any{
-			commandArg("index", "key", nil),
-			commandArg("...options...", "string", nil),
-		},
+	if cmds != nil && (len(cmds) > 1 || strings.ToLower(cmds[1]) != "ft.search") {
+		conn.WriteError("Unknown subcommand(s)")
+		return
 	}
 	ftSearchDocs := map[string]any{
 		"summary": "Search the index with a textual query",
@@ -246,7 +217,7 @@ func commandDocs(conn redcon.Conn, cmds []string) {
 			commandArg("...options...", "string", nil),
 		},
 	}
-	conn.WriteAny([]any{"FT.CREATE", ftCreateDocs, "FT.SEARCH", ftSearchDocs})
+	conn.WriteAny([]any{"FT.SEARCH", ftSearchDocs})
 }
 
 func commandArg(name string, argType string, flags []string, args ...map[string]any) map[string]any {
@@ -261,26 +232,4 @@ func commandArg(name string, argType string, flags []string, args ...map[string]
 		a["arguments"] = args
 	}
 	return a
-}
-
-type сustomSyntaxError struct {
-	line, column int
-	msg          string
-}
-
-func (c сustomSyntaxError) Error() string {
-	return fmt.Sprintf("Error at position %d: %s", c.column, c.msg)
-}
-
-type сustomErrorListener struct {
-	*antlr.DefaultErrorListener // Embed default which ensures we fit the interface
-}
-
-func (c *сustomErrorListener) SyntaxError(recognizer antlr.Recognizer, offendingSymbol interface{}, line, column int, msg string, e antlr.RecognitionException) {
-	err := сustomSyntaxError{
-		line:   line,
-		column: column,
-		msg:    msg,
-	}
-	panic(err)
 }
