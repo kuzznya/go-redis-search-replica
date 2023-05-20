@@ -27,6 +27,10 @@ func (t *TopNIterator) Next() (occurrence index.DocTermOccurrence, score float32
 }
 
 func TopN(offset int, limit int, iter index.TermIterator) index.TermIterator {
+	if _, ok := iter.(index.StopWordIterator); ok {
+		return index.Empty()
+	}
+
 	values := make([]iterBufValue, 0)
 	for {
 		occ, score, ok := iter.Next()

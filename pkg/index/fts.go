@@ -17,6 +17,10 @@ import (
 	"sync/atomic"
 )
 
+var stopWords = []string{"a", "an", "and", "are", "as", "at",
+	"be", "but", "by", "for", "if", "in", "into", "is", "it", "no", "not", "of", "on", "or", "such",
+	"that", "the", "their", "then", "there", "these", "they", "this", "to", "was", "will", "with"}
+
 type FTSIndex struct {
 	deleted     bool
 	prefixes    []string
@@ -49,9 +53,13 @@ type TermIterator interface {
 
 type EmptyIterator struct{}
 
-func (e EmptyIterator) Next() (occurrence DocTermOccurrence, score float32, ok bool) {
+func (iter EmptyIterator) Next() (occurrence DocTermOccurrence, score float32, ok bool) {
 	ok = false
 	return
+}
+
+type StopWordIterator struct {
+	EmptyIterator
 }
 
 func Empty() TermIterator {
@@ -179,7 +187,14 @@ func (i *FTSIndex) processDoc(doc *storage.Document) {
 }
 
 func (i *FTSIndex) processToken(doc *storage.Document, occurrences map[string]*DocTermOccurrence, fieldIdx int, token string, start int, pos int) {
-	term := porterstemmer.StemString(token)
+	token = strings.ToLower(token)
+
+	if isStopWord(token) {
+		return
+	}
+
+	termRunes := porterstemmer.StemWithoutLowerCasing([]rune(token))
+	term := string(termRunes)
 
 	occurrence, found := occurrences[term]
 	if !found {
@@ -218,7 +233,13 @@ func (r *readIterator) Next() (occurrence DocTermOccurrence, score float32, ok b
 }
 
 func (i *FTSIndex) Read(term string) TermIterator {
-	term = porterstemmer.StemString(term)
+	term = strings.ToLower(term)
+	if isStopWord(term) {
+		return StopWordIterator{}
+	}
+
+	termRunes := porterstemmer.StemWithoutLowerCasing([]rune(term))
+	term = string(termRunes)
 
 	i.mu.RLock()
 	defer i.mu.RUnlock()
@@ -263,4 +284,9 @@ func matchesPrefix(prefixes []string, key string) bool {
 		}
 	}
 	return false
+}
+
+func isStopWord(term string) bool {
+	i := sort.SearchStrings(stopWords, term)
+	return i >= 0 && i < len(stopWords) && stopWords[i] == term
 }
