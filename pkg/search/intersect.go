@@ -2,6 +2,7 @@ package search
 
 import (
 	"github.com/kuzznya/go-redis-search-replica/pkg/index"
+	"math"
 )
 
 type IntersectIterator struct {
@@ -51,7 +52,8 @@ func (ii *IntersectIterator) Next() (occurrence index.DocTermOccurrence, score f
 			fields.InPlaceUnion(&buf2.occ.Fields)
 			occurrences := append(buf1.occ.Occurrences, buf2.occ.Occurrences...)
 			result := index.DocTermOccurrence{Doc: buf1.occ.Doc, TF: 0, Fields: fields, Occurrences: occurrences}
-			return result, buf1.score + buf2.score, true // TODO: 06/05/2023 add penalty for distance
+			score = (buf1.score + buf2.score) / distancePenalty(buf1.occ.Occurrences, buf2.occ.Occurrences)
+			return result, score, true
 		}
 		// skip buffer for the iterator with greater key as the other iterator can return the same key later
 		if buf1.occ.Doc.Key > buf2.occ.Doc.Key {
@@ -70,4 +72,45 @@ func Intersect(iter1 index.TermIterator, iter2 index.TermIterator) index.TermIte
 		return iter1
 	}
 	return &IntersectIterator{iter1: iter1, iter2: iter2}
+}
+
+func distancePenalty(occs1 []index.FieldTermOccurrence, occs2 []index.FieldTermOccurrence) float32 {
+	if len(occs1) == 0 || len(occs2) == 0 {
+		return 1
+	}
+
+	i1 := 0
+	i2 := 0
+
+	minDist := math.MaxInt
+	for {
+		if i1 == len(occs1) || i2 == len(occs2) {
+			break
+		}
+		pos1 := occs1[i1].Pos
+		pos2 := occs2[i2].Pos
+		minDist = min(abs(pos1-pos2), minDist)
+		if pos2 > pos1 {
+			i1++
+		} else {
+			i2++
+		}
+	}
+	minDistFloat := float64(minDist)
+	return float32(math.Sqrt(minDistFloat * minDistFloat))
+}
+
+func abs(a int) int {
+	if a < 0 {
+		return -a
+	}
+	return a
+}
+
+func min(a int, b int) int {
+	if a <= b {
+		return a
+	} else {
+		return b
+	}
 }

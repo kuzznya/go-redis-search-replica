@@ -140,6 +140,9 @@ func (i *FTSIndex) processDoc(doc *storage.Document) {
 
 	termCount := 0
 
+	// token index counted across all fields
+	pos := 0
+
 	for k, v := range doc.Hash {
 		fieldIdx := sort.SearchStrings(i.fields, k)
 		if fieldIdx >= len(i.fields) || k != i.fields[fieldIdx] {
@@ -147,7 +150,6 @@ func (i *FTSIndex) processDoc(doc *storage.Document) {
 		}
 
 		start := 0
-		pos := 0
 		seg := segment.NewSegmenterDirect(v)
 		for seg.Segment() {
 			token := seg.Text()
