@@ -144,7 +144,7 @@ func (s server) handleFtSearch(conn redcon.Conn, args []string) {
 		panic(err)
 	}
 
-	log.Infof("Query finished in %s", time.Now().Sub(start))
+	log.Debugf("Query finished in %s", time.Now().Sub(start))
 
 	docs := make([]*storage.Document, 0)
 	for {
@@ -178,7 +178,7 @@ func handlePprof(conn redcon.Conn, args []string) {
 	if len(args) != 1 {
 		conn.WriteError("Either 'pprof start' or 'pprof end' is supported")
 	}
-	switch strings.ToLower(args[1]) {
+	switch strings.ToLower(args[0]) {
 	case "start":
 		if memprof != nil {
 			conn.WriteError("Already in progress")
