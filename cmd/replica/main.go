@@ -16,6 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -23,20 +24,48 @@ import (
 
 func main() {
 	var logLevel string
-	flag.StringVar(&logLevel, "log", "info", "--log warn - set log level to warn")
+	flag.StringVar(&logLevel, "log", "", "--log warn - set log level to warn")
+	var masterUrl string
+	flag.StringVar(&masterUrl, "replicaof", "",
+		"--replicaof localhost:6379 - set master url to localhost:6379")
+	var port int
+	flag.IntVar(&port, "port", -1, "--port 6379 - set replica listening port to 6379")
 	flag.Parse()
+	if logLevel == "" {
+		logLevel = os.Getenv("LOG_LEVEL")
+	}
+	if logLevel == "" {
+		logLevel = "info"
+	}
 	level, err := log.ParseLevel(logLevel)
 	if err != nil {
 		log.WithError(err).Panicln("Failed to parse log level")
 	}
 	log.SetLevel(level)
 
+	if masterUrl == "" {
+		masterUrl = os.Getenv("REPLICAOF")
+	}
+	if masterUrl == "" {
+		masterUrl = "localhost:6379"
+	}
+
+	if port == -1 && os.Getenv("PORT") != "" {
+		port, err = strconv.Atoi(os.Getenv("PORT"))
+		if err != nil {
+			log.WithError(err).Panicln("Failed to parse port from environment variable PORT")
+		}
+	}
+	if port == -1 {
+		port = 16379
+	}
+
 	s := storage.New()
 	engine := search.NewEngine(s)
 	e := exec.New(s, engine)
 
 	dialTimeout := 30 * time.Second
-	conn, err := createConn(dialTimeout)
+	conn, err := createMasterConn(masterUrl, dialTimeout)
 	if err != nil {
 		log.WithError(err).Panicln("Failed to connect to Redis")
 	}
@@ -83,7 +112,7 @@ func main() {
 	rdbLen := readRdb(reader, e)
 	log.Infof("RDB content received successfully (%d bytes) in %s", rdbLen, time.Now().Sub(rdbReadStart).String())
 
-	go server.StartServer(engine) // TODO: 03/05/2023 check if it is better to start server in the beginning or here
+	go server.StartServer(engine, port) // TODO: 03/05/2023 check if it is better to start server in the beginning or here
 
 	parser := resp.NewParser(reader)
 	for {
@@ -113,8 +142,8 @@ func main() {
 	}
 }
 
-func createConn(dialTimeout time.Duration) (*net.TCPConn, error) {
-	conn, err := net.DialTimeout("tcp", "localhost:6379", dialTimeout)
+func createMasterConn(masterUrl string, dialTimeout time.Duration) (*net.TCPConn, error) {
+	conn, err := net.DialTimeout("tcp", masterUrl, dialTimeout)
 	if err != nil {
 		return nil, err
 	}

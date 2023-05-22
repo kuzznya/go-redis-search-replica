@@ -2,9 +2,10 @@ version: '3.9'
 
 services:
   redis-1:
-    image: redis-ftsindex
+    image: ghcr.io/kuzznya/go-redis-search-replica/master
     build:
       context: .
+      dockerfile: master.Dockerfile
     container_name: redis-1
     restart: unless-stopped
     healthcheck:
@@ -14,10 +15,24 @@ services:
       retries: 5
       start_period: 10s
     ports:
-      - 6379:6379
+      - "6379:6379"
     volumes:
       - ./entrypoint.sh:/usr/bin/entrypoint.sh
       - redis:/data
+
+  replica:
+    image: ghcr.io/kuzznya/go-redis-search-replica/replica
+    build:
+      context: .
+      dockerfile: replica.Dockerfile
+    container_name: replica
+    restart: unless-stopped
+    ports:
+      - "6380:6380"
+    environment:
+      REPLICAOF: "redis-1:6379"
+      PORT: "6380"
+      LOG_LEVEL: info
 
 volumes:
   redis:

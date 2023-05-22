@@ -14,10 +14,9 @@ import (
 )
 
 const host = "0.0.0.0"
-const port = "16379"
 
-func StartServer(engine search.Engine) {
-	addr := host + ":" + port
+func StartServer(engine search.Engine, port int) {
+	addr := fmt.Sprintf("%s:%d", host, port)
 	log.Infof("Starting server on %s", addr)
 	err := redcon.ListenAndServe(
 		addr,
