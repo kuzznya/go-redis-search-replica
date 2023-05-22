@@ -11,6 +11,7 @@ RUN go mod download
 COPY cmd cmd
 COPY pkg pkg
 
+RUN go generate ./...
 RUN go build -v github.com/kuzznya/go-redis-search-replica/cmd/replica
 
 FROM debian:bullseye-slim
