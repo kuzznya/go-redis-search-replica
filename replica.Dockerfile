@@ -4,6 +4,12 @@ WORKDIR /app
 
 ENV GOPROXY=direct
 
+RUN apt update -y && apt install -y default-jre && \
+    curl --create-dirs -O --output-dir /usr/local/lib https://www.antlr.org/download/antlr-4.13.0-complete.jar &&  \
+    echo '#!/bin/sh' > /usr/local/bin/antlr && \
+    echo 'java -jar /usr/local/lib/antlr-4.13.0-complete.jar "$@"' >> /usr/local/bin/antlr && \
+    chmod +x /usr/local/bin/antlr
+
 COPY go.mod go.sum ./
 
 RUN go mod download

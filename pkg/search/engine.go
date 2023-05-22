@@ -2,7 +2,7 @@ package search
 
 import (
 	"fmt"
-	"github.com/antlr/antlr4/runtime/Go/antlr/v4"
+	"github.com/antlr4-go/antlr/v4"
 	"github.com/blevesearch/go-porterstemmer"
 	"github.com/emirpasic/gods/stacks"
 	"github.com/emirpasic/gods/stacks/arraystack"
